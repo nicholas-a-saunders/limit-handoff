@@ -20,7 +20,7 @@ First public release.
 - **CLI** (`limit-handoff`): `install` / `uninstall` (dry run, backup, never touches other hooks), `status`, `prompt`, `recover`, `resolve`, `simulate`, `doctor` (also warns when hooks are registered twice and checks the Claude Code version).
 - **Plugin packaging** with a single-plugin marketplace, so it installs with `claude plugin install`.
 - **Housekeeping.** `.handoff/` gets its own `.gitignore`, and old recovered files are pruned (30 kept by default).
-- 484 tests, run on macOS (bash 3.2) and Linux (bash 5) in CI.
+- 490 tests, run on macOS (bash 3.2) and Linux (bash 5) in CI.
 
 ### Security and robustness fixes
 
@@ -34,6 +34,7 @@ These came from a full code review before the first release. Each one has a regr
 - **Right facts in the output.** The cut-off time is the limit line's own time; a reset time in the past says so; an old limit no longer shows after the chat went on; the newest unresolved block is chosen by time, and several open blocks are listed by session id; recovered files that open blocks name are never pruned.
 - **Honest messages.** The paste prompt names `HANDOFF.md` and the recovered file only when they exist, and asks the new chat to work out the next step when none is known. The notification says what was really saved and where. When the project folder cannot take a file, the recovered file and the paste prompt go to the state folder. Two recovered files made in the same second never share a name. Reminders use your configured file name.
 - **CLI.** `simulate` uses a realistic sample chat with fresh times, so the demo shows a limit that resets in the future; `install`/`uninstall` say when jq is missing; `install` names hooks it removed and lists valid error codes; `simulate` checks only its own files; `resolve`, `status`, `doctor` and `prompt` give clear errors for bad input.
+- **Locking on new Linux.** Two chats that stop at the same moment no longer lose a cut-off block on Ubuntu 26.04, whose Rust `mkdir` is not atomic: the lock is now a file made with bash's noclobber option, and a lock left by a process that has ended is cleared.
 - **Portability.** Tests no longer use BSD-only `sed -i ''`, `stat -f` or `date -v`; leading-zero numbers in config work; ShellCheck (warning level) passes, with directives and `.shellcheckrc`; one version source (`HK_VERSION` = `plugin.json`).
 
 [Unreleased]: https://github.com/nicholas-a-saunders/limit-handoff/compare/v1.0.0...HEAD

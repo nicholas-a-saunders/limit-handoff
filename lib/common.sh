@@ -223,39 +223,58 @@ hk_atomic_write() {
   return 0
 }
 
-# hk_lock_take file: waits for a lock on this file (a folder inside the state folder).
+# hk_lock_take file: waits for a lock on this file (a lock file inside the state folder).
 # Two hooks can run at the same moment when several chats hit a limit together, so
-# every read-then-write of HANDOFF.md runs under this lock. After about 2 seconds a lock
-# that is still there is treated as left behind and is broken. If no lock can be made
-# at all (the state folder is not writable), the caller goes on without one.
+# every read-then-write of HANDOFF.md runs under this lock.
+# The lock file is made with bash's noclobber option: bash opens it with O_CREAT|O_EXCL, so
+# exactly one process can make it. It holds the owner's process id. mkdir is not used: the Rust
+# mkdir in Ubuntu 26.04 (uutils) lets two processes both "create" the same folder.
+# A lock whose owner has ended is removed (checked about once a second). A lock that is still
+# there after about 10 seconds is broken. If no lock can be made at all (the state folder is not
+# writable), the caller goes on without one.
 hk_lock_take() {
-  local target key dir tries=0
-  HK_LOCK_DIR=""
+  local target key dir lock tries=0 holder
+  HK_LOCK_FILE=""
   target="$(hk_real_path "$1")"
   key="$(printf '%s' "$target" | cksum | tr -s ' \t' '__' | tr -cd '0-9_')"
   dir="$(hk_state_dir)/locks"
   mkdir -p "$dir" 2>/dev/null || return 1
-  dir="$dir/$key.lock"
-  while ! mkdir "$dir" 2>/dev/null; do
+  lock="$dir/$key.lock"
+  # A folder with this name is a lock left by an older version of the kit, which used mkdir.
+  if [ -d "$lock" ]; then rmdir "$lock" 2>/dev/null; fi
+  while ! ( set -o noclobber; printf '%s\n' "$$" > "$lock" ) 2>/dev/null; do
     tries=$((tries + 1))
-    if [ "$tries" -gt 40 ]; then
-      hk_log warn "breaking a lock that was left behind: $dir"
-      rmdir "$dir" 2>/dev/null
-      mkdir "$dir" 2>/dev/null || return 1
+    if [ $((tries % 20)) -eq 0 ]; then
+      holder="$(cat "$lock" 2>/dev/null)"
+      case "$holder" in ''|*[!0-9]*) holder="" ;; esac
+      if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+        # Only remove it when it still names the same ended process.
+        if [ "$(cat "$lock" 2>/dev/null)" = "$holder" ]; then
+          hk_log warn "removing a lock left by a process that has ended: $lock"
+          rm -f "$lock" 2>/dev/null
+        fi
+        continue
+      fi
+    fi
+    if [ "$tries" -gt 200 ]; then
+      hk_log warn "breaking a lock held for more than 10 seconds: $lock"
+      rm -f "$lock" 2>/dev/null
+      ( set -o noclobber; printf '%s\n' "$$" > "$lock" ) 2>/dev/null || return 1
       break
     fi
     sleep 0.05 2>/dev/null || sleep 1
   done
-  HK_LOCK_DIR="$dir"
+  HK_LOCK_FILE="$lock"
   return 0
 }
 
-# hk_lock_release: removes the lock taken by hk_lock_take, if there is one.
+# hk_lock_release: removes the lock taken by hk_lock_take, if there is one and it is still ours.
+# A lock that another process broke and took over is left alone.
 hk_lock_release() {
-  if [ -n "${HK_LOCK_DIR:-}" ]; then
-    rmdir "$HK_LOCK_DIR" 2>/dev/null
+  if [ -n "${HK_LOCK_FILE:-}" ] && [ "$(cat "$HK_LOCK_FILE" 2>/dev/null)" = "$$" ]; then
+    rm -f "$HK_LOCK_FILE" 2>/dev/null
   fi
-  HK_LOCK_DIR=""
+  HK_LOCK_FILE=""
   return 0
 }
 

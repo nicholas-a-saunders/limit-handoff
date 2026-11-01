@@ -923,6 +923,89 @@ test_s2_simulate_with_another_code_shows_no_limit_details() {
 }
 
 # ---------------------------------------------------------------------------
+# L1-L5. The lock is a noclobber file (mkdir is not atomic in Ubuntu 26.04's uutils).
+# ---------------------------------------------------------------------------
+
+# l_lock_path file: the lock file hk_lock_take uses for file.
+l_lock_path() {
+  local key
+  key="$(printf '%s' "$(hk_real_path "$1")" | cksum | tr -s ' \t' '__' | tr -cd '0-9_')"
+  printf '%s/locks/%s.lock\n' "$(hk_state_dir)" "$key"
+}
+
+test_l1_lock_is_a_file_with_the_owner_pid_and_release_removes_it() {
+  load_hk
+  local f="$TL_TMP/target.md" lock
+  lock="$(l_lock_path "$f")"
+  hk_lock_take "$f" || fail "the lock was not taken"
+  [ -f "$lock" ] || fail "the lock must be a file: $lock"
+  assert_eq "$$" "$(cat "$lock")" "the lock holds the owner's process id"
+  hk_lock_release
+  assert_file_missing "$lock" "release removes the lock"
+}
+
+test_l2_a_lock_left_by_an_ended_process_is_cleared_fast() {
+  load_hk
+  local f="$TL_TMP/target.md" lock dead start
+  lock="$(l_lock_path "$f")"
+  sleep 0 & dead=$!
+  wait "$dead"
+  mkdir -p "$(dirname "$lock")"
+  printf '%s\n' "$dead" > "$lock"
+  start=$SECONDS
+  hk_lock_take "$f" || fail "the lock was not taken"
+  [ $((SECONDS - start)) -lt 4 ] || fail "a lock of an ended process took too long to clear"
+  assert_eq "$$" "$(cat "$lock")" "the lock now belongs to this process"
+  hk_lock_release
+}
+
+test_l3_an_old_style_lock_folder_is_cleaned_up() {
+  load_hk
+  local f="$TL_TMP/target.md" lock
+  lock="$(l_lock_path "$f")"
+  mkdir -p "$lock"
+  hk_lock_take "$f" || fail "the lock was not taken"
+  [ -f "$lock" ] || fail "the old lock folder must be replaced by a lock file"
+  hk_lock_release
+}
+
+test_l4_release_leaves_a_lock_that_another_process_took_over() {
+  load_hk
+  local f="$TL_TMP/target.md" lock
+  lock="$(l_lock_path "$f")"
+  hk_lock_take "$f" || fail "the lock was not taken"
+  printf '%s\n' 999999 > "$lock"
+  hk_lock_release
+  assert_file_exists "$lock" "a lock owned by another process must not be removed"
+  rm -f "$lock"
+}
+
+test_l5_two_processes_never_hold_the_lock_together() {
+  load_hk
+  local f="$TL_TMP/counter.md" c="$TL_TMP/count"
+  printf '0\n' > "$c"
+  # Each worker adds 1 to the counter 50 times, with a read, a pause and a write under the lock.
+  l_worker() {
+    local i n
+    for i in $(seq 1 50); do
+      hk_lock_take "$f"
+      n="$(cat "$c")"
+      sleep 0.001 2>/dev/null
+      printf '%s\n' $((n + 1)) > "$c"
+      hk_lock_release
+    done
+  }
+  l_worker & l_worker & wait
+  assert_eq "100" "$(cat "$c")" "a lost update means two processes held the lock at once"
+}
+
+test_l5_the_lock_does_not_use_mkdir() {
+  if sed -n '/^hk_lock_take()/,/^}/p' "$TL_ROOT/lib/common.sh" | grep -q 'while ! mkdir'; then
+    fail "hk_lock_take must not use mkdir as the lock (not atomic with uutils mkdir)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # V1-V16. Leftovers found when every finding was checked again on the fixed code.
 # ---------------------------------------------------------------------------
 
