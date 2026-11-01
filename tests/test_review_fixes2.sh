@@ -537,7 +537,7 @@ test_c48_long_run_of_spaces_in_a_prompt_is_fast() {
   start=$SECONDS
   hk_recover_json "$f" 5 > /dev/null || fail "recovery failed"
   elapsed=$((SECONDS - start))
-  [ "$elapsed" -lt 2 ] || fail "a prompt with 100000 spaces took $elapsed seconds (batch C #48)"
+  [ "$elapsed" -lt "$(tl_time_limit 2)" ] || fail "a prompt with 100000 spaces took $elapsed seconds (batch C #48)"
 }
 
 test_c52_a_template_value_over_100k_is_cut_and_shows_it() {
@@ -884,7 +884,7 @@ test_o4_redact_is_fast_on_a_huge_command() {
   jq -n -c --arg c "echo $(printf 'b%.0s' $(seq 1 100000))" '{type:"assistant", message:{content:[{type:"tool_use", name:"Bash", input:{command:$c}}]}}' > "$f"
   start=$SECONDS
   jq -n -R -c --argjson np 5 -f "$TL_ROOT/lib/transcript.jq" < "$f" > /dev/null || fail "the filter failed"
-  [ $((SECONDS - start)) -lt 3 ] || fail "redacting a 100000 letter command took too long"
+  [ $((SECONDS - start)) -lt "$(tl_time_limit 3)" ] || fail "redacting a 100000 letter command took too long"
 }
 
 test_o5_created_handoff_shows_the_default_lines_when_nothing_was_found() {
@@ -954,7 +954,7 @@ test_l2_a_lock_left_by_an_ended_process_is_cleared_fast() {
   printf '%s\n' "$dead" > "$lock"
   start=$SECONDS
   hk_lock_take "$f" || fail "the lock was not taken"
-  [ $((SECONDS - start)) -lt 4 ] || fail "a lock of an ended process took too long to clear"
+  [ $((SECONDS - start)) -lt "$(tl_time_limit 4)" ] || fail "a lock of an ended process took too long to clear"
   assert_eq "$$" "$(cat "$lock")" "the lock now belongs to this process"
   hk_lock_release
 }
@@ -1154,7 +1154,7 @@ test_v15_a_long_run_of_zeros_in_config_is_fast() {
   out="$(_hk_int_clean "$(printf '0%.0s' $(seq 1 100000))5" 20)"
   assert_eq "20" "$out" "a value over 64 characters uses the default (#49)"
   assert_eq "8" "$(_hk_int_clean "0008" 20)" "leading zeros are removed (#49)"
-  [ $((SECONDS - start)) -lt 3 ] || fail "100000 leading zeros took too long (#49)"
+  [ $((SECONDS - start)) -lt "$(tl_time_limit 3)" ] || fail "100000 leading zeros took too long (#49)"
 }
 
 test_v16_direction_marks_leave_file_paths() {

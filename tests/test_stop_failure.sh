@@ -331,7 +331,7 @@ test_large_transcript_finishes_fast() {
   elapsed="$(perl -e "printf '%.3f', $end - $start")"
   assert_exit 0 "$TL_RC"
   echo "    (large transcript run took ${elapsed}s)"
-  perl -e "exit(($elapsed < 2.0) ? 0 : 1)" || fail "hook took ${elapsed}s on a large transcript; limit is 2s"
+  perl -e "exit(($elapsed < $(tl_time_limit 2.0)) ? 0 : 1)" || fail "hook took ${elapsed}s on a large transcript; limit is $(tl_time_limit 2.0)s"
   assert_file_contains "$p/HANDOFF.md" "Prompt number"
 }
 

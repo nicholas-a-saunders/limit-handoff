@@ -104,8 +104,8 @@ test_sixty_thousand_line_transcript_finishes_under_two_seconds() {
   printf '%s' "$(tl_payload_stop "big60" "$f" "$p" rate_limit)" > "$TL_TMP/big60.payload"
   adv_timed_stop "$TL_TMP/big60.payload"
   assert_exit 0 "$TL_RC"
-  ok="$(perl -e "print(($ADV_SECS < 2.0) ? 'yes' : 'no')")"
-  assert_eq "yes" "$ok" "60k-line transcript took ${ADV_SECS}s (limit 2 s)"
+  ok="$(perl -e "print(($ADV_SECS < $(tl_time_limit 2.0)) ? 'yes' : 'no')")"
+  assert_eq "yes" "$ok" "60k-line transcript took ${ADV_SECS}s (limit $(tl_time_limit 2.0) s)"
   rec="$(ls -t "$p/.handoff"/recovered-*.md | head -n 1)"
   assert_file_contains "$rec" "prompt number 59997" "the newest prompt must be in the recovered file"
 }
@@ -116,8 +116,8 @@ test_fifty_megabyte_transcript_with_two_megabyte_lines_finishes_under_two_second
   printf '%s' "$(tl_payload_stop "big2" "$f" "$p" rate_limit)" > "$TL_TMP/big2.payload"
   adv_timed_stop "$TL_TMP/big2.payload"
   assert_exit 0 "$TL_RC"
-  ok="$(perl -e "print(($ADV_SECS < 2.0) ? 'yes' : 'no')")"
-  assert_eq "yes" "$ok" "50 MB transcript took ${ADV_SECS}s (limit 2 s)"
+  ok="$(perl -e "print(($ADV_SECS < $(tl_time_limit 2.0)) ? 'yes' : 'no')")"
+  assert_eq "yes" "$ok" "50 MB transcript took ${ADV_SECS}s (limit $(tl_time_limit 2.0) s)"
   rec="$(ls -t "$p/.handoff"/recovered-*.md | head -n 1)"
   assert_file_contains "$rec" "prompt 25" "the last prompt must be recovered from the big transcript"
 }

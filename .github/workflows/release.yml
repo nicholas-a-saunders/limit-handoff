@@ -25,6 +25,9 @@ jobs:
         with:
           persist-credentials: false
       - run: /bin/bash tests/run.sh
+        env:
+          # Shared runners can be several times slower than a laptop: speed limits x3.
+          HK_TEST_TIME_SCALE: "3"
 
   release:
     name: Publish release

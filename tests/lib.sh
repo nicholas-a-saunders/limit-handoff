@@ -208,6 +208,15 @@ tl_write() {
   cat > "$1"
 }
 
+# tl_time_limit seconds: the time limit for a speed test. Shared CI machines can be several times
+# slower than a laptop, so CI sets HK_TEST_TIME_SCALE (a whole number, default 1), and every speed
+# limit is multiplied by it. Local runs keep the limit from the spec.
+tl_time_limit() {
+  local scale="${HK_TEST_TIME_SCALE:-1}"
+  case "$scale" in ''|*[!0-9]*|0) scale=1 ;; esac
+  perl -e "print $1 * $scale"
+}
+
 # tl_hk_version: the HK_VERSION value in lib/common.sh. The file is read as text, not sourced.
 tl_hk_version() {
   sed -n 's/^HK_VERSION="\([^"]*\)".*/\1/p' "$TL_ROOT/lib/common.sh" | head -n 1
