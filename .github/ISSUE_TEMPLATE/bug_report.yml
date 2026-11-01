@@ -1,0 +1,62 @@
+name: Bug report
+description: Something did not work as the README says.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please **remove private text** (prompts, file contents, paths you do not want public) from anything you paste.
+        Found a security problem? Do not open an issue. Use [private vulnerability reporting](https://github.com/nicholas-a-saunders/limit-handoff/security/advisories/new) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How is limit-handoff installed?
+      options:
+        - As a plugin (claude plugin install)
+        - As settings hooks (limit-handoff install --settings ...)
+        - Not installed (CLI only)
+    validations:
+      required: true
+  - type: input
+    id: claude-version
+    attributes:
+      label: Claude Code version
+      description: Output of `claude --version`.
+      placeholder: 2.1.312 (Claude Code)
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and bash version
+      placeholder: macOS 15.6, GNU bash 3.2.57
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `limit-handoff doctor`
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Relevant log lines
+      description: The last lines of the log (`limit-handoff status` shows them). Remove private text first.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed private text from everything I pasted.
+          required: true
+        - label: I am on the latest release of limit-handoff.

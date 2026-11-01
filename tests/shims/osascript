@@ -1,0 +1,3 @@
+#!/bin/bash
+# Test shim for osascript. Writes each argument on its own line to $TEST_OUT/notify.txt.
+printf '%s\n' "$@" >> "${TEST_OUT:?TEST_OUT is not set}/notify.txt"

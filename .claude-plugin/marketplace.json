@@ -1,0 +1,15 @@
+{
+  "name": "limit-handoff",
+  "owner": {
+    "name": "Nicholas Saunders",
+    "url": "https://github.com/nicholas-a-saunders"
+  },
+  "description": "When Claude Code stops on a usage limit, save a HANDOFF.md, recovered context and a paste prompt so a new chat, account or machine can carry on.",
+  "plugins": [
+    {
+      "name": "limit-handoff",
+      "source": "./",
+      "description": "When Claude Code stops on a usage limit, save a HANDOFF.md, recovered context and a paste prompt so a new chat, account or machine can carry on."
+    }
+  ]
+}

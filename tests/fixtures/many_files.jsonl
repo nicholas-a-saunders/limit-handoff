@@ -1,0 +1,27 @@
+{"type":"user","message":{"role":"user","content":"Many edits"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m01","name":"Edit","input":{"file_path":"/many/file01.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m02","name":"Edit","input":{"file_path":"/many/file02.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m03","name":"Edit","input":{"file_path":"/many/file03.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m04","name":"Edit","input":{"file_path":"/many/file04.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m05","name":"Edit","input":{"file_path":"/many/file05.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m06","name":"Edit","input":{"file_path":"/many/file06.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m07","name":"Edit","input":{"file_path":"/many/file07.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m08","name":"Edit","input":{"file_path":"/many/file08.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m09","name":"Edit","input":{"file_path":"/many/file09.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m10","name":"Edit","input":{"file_path":"/many/file10.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m11","name":"Edit","input":{"file_path":"/many/file11.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m12","name":"Edit","input":{"file_path":"/many/file12.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m13","name":"Edit","input":{"file_path":"/many/file13.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m14","name":"Edit","input":{"file_path":"/many/file14.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m15","name":"Edit","input":{"file_path":"/many/file15.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m16","name":"Edit","input":{"file_path":"/many/file16.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m17","name":"Edit","input":{"file_path":"/many/file17.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m18","name":"Edit","input":{"file_path":"/many/file18.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m19","name":"Edit","input":{"file_path":"/many/file19.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m20","name":"Edit","input":{"file_path":"/many/file20.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m21","name":"Edit","input":{"file_path":"/many/file21.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m22","name":"Edit","input":{"file_path":"/many/file22.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m23","name":"Edit","input":{"file_path":"/many/file23.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m24","name":"Edit","input":{"file_path":"/many/file24.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"m25","name":"Edit","input":{"file_path":"/many/file25.py"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"mx","name":"Edit","input":{"file_path":"/many/file05.py"}}]}}

@@ -1,0 +1,20 @@
+# OS clutter (the plugin directory refuses these)
+.DS_Store
+Thumbs.db
+desktop.ini
+__MACOSX/
+
+# Test run folders
+tests/.tmp*
+tests/.adv*
+
+# Files the kit writes when you try it inside this folder. The leading "/" matches them only at
+# the top of the repository: on a case-insensitive disk (macOS) a bare PASTE-PROMPT.txt rule would
+# also hide templates/paste-prompt.txt, which the kit needs.
+/.handoff/
+/PASTE-PROMPT.txt
+/PASTE-PROMPT.txt.bak-*
+*.bak-*
+
+# Release build output
+dist/

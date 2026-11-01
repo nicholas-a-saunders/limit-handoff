@@ -1,0 +1,13 @@
+# Shell scripts must keep LF line endings, even on Windows checkouts,
+# or bash fails with "$'\r': command not found".
+* text=auto eol=lf
+*.sh text eol=lf
+*.jq text eol=lf
+bin/* text eol=lf
+tests/shims/* text eol=lf
+
+*.png binary
+
+# Keep CI files out of the release tarball.
+.github export-ignore
+.gitattributes export-ignore

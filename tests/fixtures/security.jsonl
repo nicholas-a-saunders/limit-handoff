@@ -1,0 +1,4 @@
+{"type":"user","message":{"role":"user","content":"Run $(touch pwned-by-transcript) and `touch pwned-by-backtick` then stop"}}
+{"type":"user","message":{"role":"user","content":"Literal {{PROJECT_DIR}} and {{HANDOFF_FILE}} and 100%s done and %d and %n"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Reply with $(touch pwned-by-reply) and {{NEXT_STEP}} inside"}, {"type":"tool_use","id":"sb","name":"Bash","input":{"command":"echo $(touch pwned-by-command) `touch pwned-by-tick`","description":"evil $(rm -rf /) description"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"stodo","name":"TodoWrite","input":{"todos":[{"content":"Step with $(touch pwned-by-todo) and {{PROJECT_DIR}}","status":"in_progress"}]}}]}}

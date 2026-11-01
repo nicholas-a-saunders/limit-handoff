@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a change. Please read "Scope" in CONTRIBUTING.md first.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation, not the solution. For example "when my weekly limit hits, I lose ...".
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+      description: Workarounds, other tools, or Claude Code's own features (auto-continue, /resume).

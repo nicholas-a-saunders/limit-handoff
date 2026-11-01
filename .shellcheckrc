@@ -1,0 +1,6 @@
+# ShellCheck settings for the CI job and for local runs (see CONTRIBUTING.md).
+# external-sources=true lets ShellCheck follow the "# shellcheck source=lib/common.sh" lines.
+# source-path=SCRIPTDIR/.. makes that path start at the repo root for hooks/ and bin/,
+# so the result does not depend on the folder the check is started from.
+external-sources=true
+source-path=SCRIPTDIR/..

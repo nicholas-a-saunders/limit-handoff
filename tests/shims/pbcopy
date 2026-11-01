@@ -1,0 +1,4 @@
+#!/bin/bash
+# Test shim for pbcopy. Saves what it receives to $TEST_OUT/clipboard.txt.
+cat > "${TEST_OUT:?TEST_OUT is not set}/clipboard.txt"
+echo "called" >> "$TEST_OUT/clipboard.calls"

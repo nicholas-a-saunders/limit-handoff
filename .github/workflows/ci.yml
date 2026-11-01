@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: every job can only read the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }}, ${{ matrix.shell }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS ships bash 3.2 as /bin/bash. This is the oldest bash the kit supports.
+          - os: macos-latest
+            shell: /bin/bash
+          # Ubuntu runs the same suite on a current bash 5.
+          - os: ubuntu-latest
+            shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Show tool versions
+        run: |
+          ${{ matrix.shell }} --version | head -n 1
+          jq --version
+          git --version
+      - name: Run the test suite
+        run: ${{ matrix.shell }} tests/run.sh
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint the shipped scripts
+        run: |
+          shellcheck --version
+          shellcheck --shell=bash --severity=warning --external-sources \
+            bin/limit-handoff hooks/*.sh lib/common.sh
+
+  plugin:
+    name: Plugin validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check JSON files
+        run: |
+          jq empty .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json
+      - name: Install Claude Code (pinned)
+        run: npm install --global @anthropic-ai/claude-code@2.1.312
+      - name: Validate the plugin and marketplace
+        env:
+          HOME: ${{ runner.temp }}/home
+        run: |
+          mkdir -p "$HOME"
+          claude --version
+          claude plugin validate --strict .

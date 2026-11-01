@@ -1,0 +1,3 @@
+{"type":"user","message":{"role":"user","content":"Check the unit tests for the parser"},"sessionId":"lim-s3"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The parser tests pass. I will look at the edge cases next."}]}}
+{"type":"assistant","isApiErrorMessage":true,"error":"rate_limit","apiErrorStatus":429,"isSidechain":true,"cwd":"/work/parser","sessionId":"lim-s3-sub","timestamp":"2026-10-30T16:58:02.000Z","quotaLimits":{"status":"rejected","resetsAt":1893519600,"rateLimitType":"five_hour","overageStatus":"rejected","isUsingOverage":false},"message":{"model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"You've hit your session limit · resets 5:40pm (Europe/London)"}]}}

@@ -1,0 +1,6 @@
+{"type":"user","message":{"role":"user","content":"Edit many files"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"f01","name":"Write","input":{"file_path":"/w/f01.txt","content":"x"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"f02","name":"MultiEdit","input":{"file_path":"/w/f02.txt","edits":[]}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"f03","name":"NotebookEdit","input":{"notebook_path":"/w/nb.ipynb","new_source":"x"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"f04","name":"Read","input":{"file_path":"/w/not-an-edit.txt"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"f05","name":"Edit","input":{"file_path":"/w/f01.txt"}}]}}

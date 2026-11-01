@@ -1,0 +1,9 @@
+{"type":"user","message":{"role":"user","content":"Build the login page for the demo app"},"sessionId":"s1"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Sure. I will start with the form."},{"type":"tool_use","id":"toolu_todo1","name":"TodoWrite","input":{"todos":[{"content":"Make login form","status":"completed","activeForm":"Making login form"},{"content":"Add password check","status":"in_progress","activeForm":"Adding password check"},{"content":"Write tests","status":"pending","activeForm":"Writing tests"}]}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_todo1","content":"Todos have been modified successfully."}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_e1","name":"Edit","input":{"file_path":"/work/demo/src/login.html","old_string":"a","new_string":"b"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_e1","content":"The file has been updated."}]}}
+{"type":"user","message":{"role":"user","content":"Also add a remember-me box"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_b1","name":"Bash","input":{"command":"npm test","description":"Run the tests"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_b1","content":"all good"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Form is done. Next I will add the password check."}]}}

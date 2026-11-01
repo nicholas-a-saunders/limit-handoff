@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="507" viewBox="0 0 860 507" role="img" aria-labelledby="t d">
+<title id="t">limit-handoff simulate demo</title>
+<desc id="d">Terminal output of limit-handoff simulate on a sample chat: it writes a cut-off block in HANDOFF.md, a recovered context file and a paste prompt that names the next step.</desc>
+<rect width="860" height="507" rx="10" fill="#0d1117"/>
+<rect width="860" height="30" rx="10" fill="#161b22"/><rect y="20" width="860" height="10" fill="#161b22"/>
+<circle cx="20" cy="15" r="6" fill="#ff5f56"/>
+<circle cx="40" cy="15" r="6" fill="#ffbd2e"/>
+<circle cx="60" cy="15" r="6" fill="#27c93f"/>
+<text x="430.0" y="19" fill="#8b949e" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" text-anchor="middle">~/code/store — real output of limit-handoff 1.0.0 (temp path shortened)</text>
+<g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,Liberation Mono,monospace" font-size="13">
+<text x="20" y="48" fill="#7ee787" font-weight="bold">$ limit-handoff simulate --dir ~/code/store</text>
+<text x="20" y="67" fill="#e6edf3">Simulated a StopFailure (rate_limit) with session id simulated-20261101-131118-56206 in</text>
+<text x="20" y="86" fill="#e6edf3">  ~/code/store.</text>
+<text x="20" y="105" fill="#e6edf3">  HANDOFF.md: cut-off block added (~/code/store/HANDOFF.md)</text>
+<text x="20" y="124" fill="#e6edf3">  Paste prompt: ~/code/store/PASTE-PROMPT.txt</text>
+<text x="20" y="143" fill="#e6edf3">  Recovered context: ~/code/store/.handoff/recovered-20261101-131119-simulate.md</text>
+<text x="20" y="181" fill="#7ee787" font-weight="bold">$ grep -A3 &quot;^## Next steps&quot; HANDOFF.md; grep &quot;^&gt;&quot; HANDOFF.md</text>
+<text x="20" y="200" fill="#79c0ff" font-weight="bold">## Next steps (in order)</text>
+<text x="20" y="219" fill="#e6edf3">1. Add email and password validation</text>
+<text x="20" y="238" fill="#e6edf3">2. Match the login page error style</text>
+<text x="20" y="257" fill="#e6edf3">3. Write a test for the form</text>
+<text x="20" y="276" fill="#f2cc60">&gt; ⚠️ **Session cut off** (usage limit reached — 5-hour limit, resets Sun 01 Nov 15:41 GMT)</text>
+<text x="20" y="295" fill="#f2cc60">  at 2026-11-01 13:11. The steps above may be slightly behind.</text>
+<text x="20" y="314" fill="#f2cc60">&gt; Check the files for a half-finished step before continuing. Recovered context:</text>
+<text x="20" y="333" fill="#f2cc60">  `.handoff/recovered-20261101-131119-simulate.md`</text>
+<text x="20" y="371" fill="#7ee787" font-weight="bold">$ cat PASTE-PROMPT.txt</text>
+<text x="20" y="390" fill="#e6edf3">Continue my task in ~/code/store. My last chat stopped (usage limit reached — 5-hour limit,</text>
+<text x="20" y="409" fill="#e6edf3">  resets Sun 01 Nov 15:41 GMT). First read ~/code/store/HANDOFF.md fully — it has the goal,</text>
+<text x="20" y="428" fill="#e6edf3">  what is done, decisions, and the exact next steps. Then read</text>
+<text x="20" y="447" fill="#e6edf3">  ~/code/store/.handoff/recovered-20261101-131119-simulate.md for the last messages before</text>
+<text x="20" y="466" fill="#e6edf3">  the cut-off. Check the files for any half-finished step, then start with: Add email and</text>
+<text x="20" y="485" fill="#e6edf3">  password validation. Do not redo finished steps. Keep HANDOFF.md updated as you work.</text>
+</g></svg>

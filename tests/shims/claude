@@ -1,0 +1,7 @@
+#!/bin/bash
+# Test guard for the claude command. It is first on the test PATH, so the real Claude Code
+# CLI (which may be installed on the machine) is never run by the tests. It prints nothing,
+# so doctor reports that the version could not be read. A test that needs a version puts its
+# own fake claude in a temp folder instead.
+echo "test guard: the real claude command is not run by the tests" >&2
+exit 1

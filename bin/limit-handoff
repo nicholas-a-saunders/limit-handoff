@@ -1,0 +1,777 @@
+#!/usr/bin/env bash
+# bin/limit-handoff - command line tool for limit-handoff.
+#
+# Exit codes: 0 ok, 1 operational failure, 2 usage error.
+# Settings files are only written when you pass --settings yourself. Every
+# change is preceded by a timestamped backup, and invalid JSON is never touched.
+
+HK_BIN_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "$HK_BIN_DIR/../lib/common.sh" ]; then
+  echo "limit-handoff: cannot find lib/common.sh next to bin/" >&2
+  exit 1
+fi
+# shellcheck source=lib/common.sh
+. "$HK_BIN_DIR/../lib/common.sh" || { echo "limit-handoff: cannot load lib/common.sh" >&2; exit 1; }
+
+HK_ALL_EVENTS="stop-failure prompt-submit session-start pre-compact"
+
+usage() {
+  cat <<'EOF'
+limit-handoff - a clean handoff when Claude Code stops on a usage, rate or billing limit
+
+Usage:
+  limit-handoff install   --settings FILE [--errors LIST] [--events LIST] [--dry-run]
+  limit-handoff uninstall --settings FILE [--dry-run]
+  limit-handoff status    [--settings FILE] [--dir DIR]
+  limit-handoff prompt    [--dir DIR] [--no-copy]
+  limit-handoff recover   --transcript FILE [--dir DIR] [--stdout]
+  limit-handoff resolve   [--dir DIR] [--session ID]
+  limit-handoff simulate  [--dir DIR] [--error CODE] [--transcript FILE] [--copy]
+  limit-handoff doctor    [--settings FILE]
+  limit-handoff --help | --version
+
+Commands:
+  install     Add the kit's hooks to a settings.json file. Nothing is written
+              unless you pass --settings. Example: ~/.claude/settings.json
+              --errors  StopFailure codes to handle, joined with | (default rate_limit|billing_error|unknown)
+              --events  any of: stop-failure, prompt-submit, session-start, pre-compact (default all)
+  uninstall   Remove only the kit's hooks from a settings file.
+  status      Show the handoff file, unresolved cut-offs and installed hooks.
+  prompt      Build and print the paste prompt now (a manual handoff). Copies it unless --no-copy.
+  recover     Build a recovered-context file from a transcript (--stdout prints it instead).
+  resolve     Mark cut-off blocks as resolved. The history is kept.
+  simulate    Feed a fake StopFailure to the hook, to see what it writes. Clipboard is off unless --copy.
+  doctor      Check jq, bash, clipboard, notifications, the state folder and the Claude Code
+              version. With --settings FILE (default ~/.claude/settings.json if it exists),
+              also check for hooks registered twice (plugin and settings). Read only.
+
+Exit codes: 0 ok, 1 operational failure, 2 usage error.
+EOF
+}
+
+usage_err() {
+  echo "limit-handoff: $1" >&2
+  echo "Try: limit-handoff --help" >&2
+  exit 2
+}
+
+die() {
+  echo "limit-handoff: $1" >&2
+  exit 1
+}
+
+# expand_path p: turns a leading ~ into $HOME (for quoted arguments).
+expand_path() {
+  case "$1" in
+    "~") printf '%s\n' "$HOME" ;;
+    \~/*) printf '%s/%s\n' "$HOME" "${1#\~/}" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# set_dir dir: picks the project folder for this command.
+set_dir() {
+  if [ -n "${1:-}" ]; then
+    if [ ! -d "$1" ]; then
+      die "project folder does not exist: $1"
+    fi
+    HK_FORCE_DIR="$1"
+  fi
+  hk_project_dir
+}
+
+# ---------------------------------------------------------------------------
+# install / uninstall
+# ---------------------------------------------------------------------------
+
+# settings_text_blank text: succeeds when the text has nothing but spaces, tabs and line ends.
+# install, uninstall and status all use it, so a blank settings file is treated the same way.
+settings_text_blank() {
+  [ -z "$(printf '%s' "$1" | tr -d ' \t\r\n')" ]
+}
+
+# settings_apply file mode sel_json errors dry_run
+settings_apply() {
+  local file="$1" mode="$2" sel="$3" errors="$4" dry="$5"
+  local base old_norm new_json new_norm bak n tmp_old tmp_new events real
+
+  # A settings.json that is a symlink (for example into a dotfiles folder) stays a link:
+  # the file it points to is the one that is read and changed.
+  real="$(hk_real_path "$file")"
+  [ -n "$real" ] || die "the settings file goes through a dangling link, so it cannot be used: $file"
+  file="$real"
+  if [ -e "$file" ] && [ ! -f "$file" ]; then
+    die "not a regular file: $file"
+  fi
+  if [ ! -f "$file" ]; then
+    if [ "$mode" = "uninstall" ]; then
+      echo "No settings file at $file. No kit hooks to remove."
+      return 0
+    fi
+    base='{}'
+  else
+    if [ ! -r "$file" ]; then die "cannot read $file"; fi
+    base="$(cat "$file")" || die "cannot read $file"
+    if settings_text_blank "$base"; then
+      base='{}'
+    fi
+  fi
+
+  if ! printf '%s' "$base" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    echo "limit-handoff: $file is not a valid JSON object. Nothing was changed." >&2
+    exit 2
+  fi
+  # The "hooks" part must be an object whose values are lists (the shape Claude Code uses).
+  # Anything else (a list, a string, an object where a list belongs) is refused, so no
+  # user entry can be dropped by accident.
+  if ! printf '%s' "$base" | jq -e '
+      if has("hooks") and .hooks != null
+      then (.hooks | type == "object") and ([.hooks[]] | all(type == "array"))
+      else true end' >/dev/null 2>&1; then
+    echo "limit-handoff: the \"hooks\" part of $file has a shape this tool does not change (it must be an object whose values are lists). Nothing was changed." >&2
+    exit 2
+  fi
+  old_norm="$(printf '%s' "$base" | jq .)" || die "cannot format $file"
+
+  new_json="$(printf '%s' "$base" | jq --arg mode "$mode" --arg root "$HK_ROOT" \
+    --arg errors "$errors" --argjson sel "$sel" -f "$HK_ROOT/lib/settings.jq")" \
+    || die "could not update $file"
+  new_norm="$(printf '%s' "$new_json" | jq .)" || die "could not format the new settings"
+
+  if [ "$old_norm" = "$new_norm" ]; then
+    if [ "$mode" = "install" ]; then
+      echo "Already installed in $file. Nothing changed."
+    else
+      echo "No limit-handoff hooks found in $file. Nothing changed."
+    fi
+    return 0
+  fi
+
+  if [ "$dry" = "1" ]; then
+    local scratch
+    scratch="$(hk_state_dir)"
+    tmp_old="$(mktemp "$scratch/dry-old.XXXXXX")" || die "cannot create a temp file in $scratch"
+    tmp_new="$(mktemp "$scratch/dry-new.XXXXXX")" || die "cannot create a temp file in $scratch"
+    printf '%s\n' "$old_norm" > "$tmp_old"
+    printf '%s\n' "$new_norm" > "$tmp_new"
+    echo "Dry run. This is what would change in $file (nothing was written):"
+    diff -u --label "$file (now)" --label "$file (after $mode)" "$tmp_old" "$tmp_new"
+    rm -f "$tmp_old" "$tmp_new"
+    return 0
+  fi
+
+  if [ -f "$file" ]; then
+    bak="$file.bak-$(date +%Y%m%d%H%M%S)"
+    n=1
+    while [ -e "$bak" ]; do
+      bak="$file.bak-$(date +%Y%m%d%H%M%S)-$n"
+      n=$((n + 1))
+    done
+    cp -p "$file" "$bak" || die "could not make a backup at $bak. Nothing was changed."
+    echo "Backup saved: $bak"
+  else
+    mkdir -p "$(dirname "$file")" || die "could not create the folder for $file"
+  fi
+
+  printf '%s\n' "$new_json" | hk_atomic_write "$file" || die "could not write $file"
+
+  if [ "$mode" = "install" ]; then
+    events="$(printf '%s' "$sel" | jq -r 'join(", ")')"
+    echo "Installed limit-handoff hooks in $file: ${events:-none}."
+    echo "Restart Claude Code or open /hooks to load them."
+  else
+    echo "Removed limit-handoff hooks from $file."
+  fi
+  return 0
+}
+
+cmd_install() {
+  local settings="" errors="rate_limit|billing_error|unknown"
+  local events="stop-failure,prompt-submit,session-start,pre-compact" dry=0
+  local e errs_norm errs_pipe evs_norm sel script
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --settings) [ $# -ge 2 ] || usage_err "--settings needs a file"; settings="$2"; shift 2 ;;
+      --errors) [ $# -ge 2 ] || usage_err "--errors needs a list"; errors="$2"; shift 2 ;;
+      --events) [ $# -ge 2 ] || usage_err "--events needs a list"; events="$2"; shift 2 ;;
+      --dry-run) dry=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) usage_err "unknown option for install: $1" ;;
+    esac
+  done
+  [ -n "$settings" ] || usage_err "--settings is required. Example: --settings ~/.claude/settings.json"
+  settings="$(expand_path "$settings")"
+
+  errs_norm="$(printf '%s' "$errors" | tr '|,' '  ')"
+  [ -n "$(printf '%s' "$errs_norm" | tr -d ' ')" ] || usage_err "--errors cannot be empty"
+  errs_pipe=""
+  for e in $errs_norm; do
+    if [ "$e" = "prompt_too_long" ] || ! hk_in_list "$e" $HK_STOP_CODES; then
+      usage_err "unknown error code in --errors: $e. Codes you can use: $(printf '%s' "$HK_STOP_CODES" | tr ' ' '\n' | grep -v '^prompt_too_long$' | tr '\n' ' ' | sed 's/ $//')"
+    fi
+    errs_pipe="${errs_pipe:+$errs_pipe|}$e"
+  done
+
+  evs_norm="$(printf '%s' "$events" | tr ',' ' ')"
+  [ -n "$(printf '%s' "$evs_norm" | tr -d ' ')" ] || usage_err "--events cannot be empty"
+  for e in $evs_norm; do
+    if ! hk_in_list "$e" $HK_ALL_EVENTS; then
+      usage_err "unknown event in --events: $e. Valid events: stop-failure, prompt-submit, session-start, pre-compact"
+    fi
+  done
+  # After every usage check (those exit 2), before anything is read or changed.
+  hk_have_jq || die "install needs jq to read and change the settings file. Install jq first. Nothing was changed."
+  sel="$(jq -n -c '$ARGS.positional' --args $evs_norm)"
+
+  for script in stop-failure prompt-submit session-start pre-compact; do
+    if [ ! -f "$HK_ROOT/hooks/$script.sh" ]; then
+      die "missing hook script: $HK_ROOT/hooks/$script.sh"
+    fi
+    if [ ! -x "$HK_ROOT/hooks/$script.sh" ]; then
+      echo "limit-handoff: warning: $HK_ROOT/hooks/$script.sh is not executable. Run: chmod +x $HK_ROOT/hooks/*.sh" >&2
+    fi
+  done
+
+  # A plugin that is already turned on runs the same hooks. Adding them to a settings file
+  # too would run each one twice. This only warns; the install still goes ahead.
+  # The plugin can be turned on in any of the settings files Claude Code reads, so all of them are checked.
+  local cand plug_file=""
+  for cand in "$settings" "$(dirname "$settings")/settings.json" "$(dirname "$settings")/settings.local.json" "${HOME:-}/.claude/settings.json"; do
+    if hk_plugin_enabled "$cand"; then plug_file="$cand"; break; fi
+  done
+  if [ -n "$plug_file" ]; then
+    echo "limit-handoff: warning: the limit-handoff plugin is already turned on in $plug_file (enabledPlugins). Installing these settings hooks too would run each hook twice. Use one or the other: the plugin, or the settings hooks." >&2
+  fi
+
+  # The kit hooks in the file that are not in --events are removed by this install (see DECISIONS).
+  # They are listed after the change, so the user sees what went.
+  local prev="" gone="" e cli
+  if [ -f "$settings" ] && [ "$dry" = 0 ]; then
+    prev="$(jq -r --arg mode events --arg root "$HK_ROOT" --arg errors "" --argjson sel '[]' -f "$HK_ROOT/lib/settings.jq" "$settings" 2>/dev/null | tr '\n' ' ')"
+  fi
+  settings_apply "$settings" install "$sel" "$errs_pipe" "$dry"
+  for e in $prev; do
+    # The settings file names events the way Claude Code does. The --events list uses the CLI names.
+    case "$e" in
+      StopFailure) cli=stop-failure ;;
+      UserPromptSubmit) cli=prompt-submit ;;
+      SessionStart) cli=session-start ;;
+      PreCompact) cli=pre-compact ;;
+      *) cli="$e" ;;
+    esac
+    case " $evs_norm " in
+      *" $cli "*) ;;
+      *) gone="$gone $cli" ;;
+    esac
+  done
+  if [ -n "$gone" ]; then
+    echo "Removed kit hooks not in --events:$gone"
+  fi
+}
+
+cmd_uninstall() {
+  local settings="" dry=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --settings) [ $# -ge 2 ] || usage_err "--settings needs a file"; settings="$2"; shift 2 ;;
+      --dry-run) dry=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) usage_err "unknown option for uninstall: $1" ;;
+    esac
+  done
+  [ -n "$settings" ] || usage_err "--settings is required. Example: --settings ~/.claude/settings.json"
+  hk_have_jq || die "uninstall needs jq to read and change the settings file. Install jq first. Nothing was changed."
+  settings="$(expand_path "$settings")"
+  settings_apply "$settings" uninstall "[]" "rate_limit|billing_error|unknown" "$dry"
+}
+
+# ---------------------------------------------------------------------------
+# status
+# ---------------------------------------------------------------------------
+
+cmd_status() {
+  local settings="" hf age unresolved recs events_list log_dir bad_settings=0 f
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --settings) [ $# -ge 2 ] || usage_err "--settings needs a file"; settings="$2"; shift 2 ;;
+      --dir) [ $# -ge 2 ] || usage_err "--dir needs a folder"; set_dir "$2"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      *) usage_err "unknown option for status: $1" ;;
+    esac
+  done
+  [ -n "${HK_PROJECT_DIR:-}" ] || set_dir ""
+
+  hf="$(hk_handoff_path)"
+  echo "Project folder: $HK_PROJECT_DIR"
+  if [ -f "$hf" ]; then
+    age="$(hk_file_age_min "$hf")"
+    echo "Handoff file:   $hf (last updated $age min ago)"
+    unresolved="$(grep -c '^<!-- limit-handoff:cutoff .*status="unresolved"' "$hf" 2>/dev/null)"
+    echo "Unresolved cut-offs: ${unresolved:-0}"
+  else
+    echo "Handoff file:   not found ($hf)"
+    echo "Unresolved cut-offs: none"
+  fi
+  # Count with a glob, not ls | grep, so odd file names cannot change the count.
+  recs=0
+  for f in "$HK_PROJECT_DIR/$(hk_recover_dir_name)"/recovered-*.md; do
+    if [ -e "$f" ]; then recs=$((recs + 1)); fi
+  done
+  echo "Recovered files: ${recs:-0} in $(hk_recover_dir_name)/"
+
+  if [ -n "$settings" ]; then
+    settings="$(expand_path "$settings")"
+    if [ ! -f "$settings" ]; then
+      echo "Settings file:  not found ($settings)"
+    elif [ ! -r "$settings" ]; then
+      echo "Settings file:  cannot read $settings"
+      bad_settings=1
+    elif settings_text_blank "$(cat "$settings" 2>/dev/null)"; then
+      echo "Kit hooks in $settings: none (the file is empty)"
+    elif ! jq -e 'type == "object"' "$settings" >/dev/null 2>&1; then
+      echo "Settings file:  $settings is not valid JSON"
+      bad_settings=1
+    elif ! printf '%s' "$(cat "$settings")" | jq -e '
+        if has("hooks") and .hooks != null
+        then (.hooks | type == "object") and ([.hooks[]] | all(type == "array"))
+        else true end' >/dev/null 2>&1; then
+      echo "Kit hooks in $settings: unknown (the \"hooks\" part has a shape this tool does not read)"
+    else
+      events_list="$(jq -r --arg mode events --arg root "$HK_ROOT" --arg errors "" --argjson sel '[]' -f "$HK_ROOT/lib/settings.jq" "$settings" 2>/dev/null | tr '\n' ' ')"
+      unreadable="$(jq -r --arg mode bad --arg root "$HK_ROOT" --arg errors "" --argjson sel '[]' -f "$HK_ROOT/lib/settings.jq" "$settings" 2>/dev/null)"
+      if [ -n "${unreadable:-}" ] && [ "$unreadable" -gt 0 ] 2>/dev/null; then
+        echo "Kit hooks in $settings: unknown ($unreadable hook entr$( [ "$unreadable" = 1 ] && echo y || echo ies) with a command that is not text could not be checked)"
+      elif [ -n "$events_list" ]; then
+        echo "Kit hooks in $settings: $events_list"
+      else
+        echo "Kit hooks in $settings: none"
+      fi
+    fi
+  else
+    echo "Settings: not checked (pass --settings FILE to check installed hooks)"
+  fi
+
+  log_dir="$(hk_state_dir)"
+  echo "Last log lines ($log_dir/limit-handoff.log):"
+  if [ -f "$log_dir/limit-handoff.log" ]; then
+    tail -n 5 "$log_dir/limit-handoff.log" | sed 's/^/  /'
+  else
+    echo "  (no log yet)"
+  fi
+  # Exit 2 (usage error) when the settings file the user named is not valid JSON.
+  # The report above is still printed in full first.
+  if [ "$bad_settings" = "1" ]; then
+    return 2
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# prompt / recover / resolve / simulate
+# ---------------------------------------------------------------------------
+
+cmd_prompt() {
+  local copy=1 next hf rel paste rec has_hf
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dir) [ $# -ge 2 ] || usage_err "--dir needs a folder"; set_dir "$2"; shift 2 ;;
+      --no-copy) copy=0; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) usage_err "unknown option for prompt: $1" ;;
+    esac
+  done
+  [ -n "${HK_PROJECT_DIR:-}" ] || set_dir ""
+
+  hf="$(hk_handoff_path)"
+  next=""
+  has_hf=0
+  if [ -f "$hf" ]; then next="$(hk_first_next_step "$hf")"; has_hf=1; fi
+
+  rel="$(hk_write_recovered "" "manual" "manual" "manual handoff" "" \
+    "No transcript was given, so this file only links the paste prompt to HANDOFF.md." "")" || rel=""
+  rec=""
+  if [ -n "$rel" ]; then rec="$(hk_abs_path "$rel")"; else echo "No recovered context file could be written. The paste prompt does not name one." >&2; fi
+  paste="$(hk_paste_text "$next" "$rec" "manual handoff" manual "$has_hf")"
+  hk_final_link_ok "$(hk_prompt_path)" || die "$(hk_prompt_name) is a link to a place outside the project. Set LIMIT_HANDOFF_FOLLOW_LINKS=1 in your own settings to allow it."
+  hk_write_prompt_file "$(hk_prompt_path)" "$paste" || die "could not write $(hk_prompt_path)"
+
+  echo "Paste prompt saved to $(hk_prompt_path)"
+  if [ "$copy" = "1" ]; then
+    if hk_copy_clipboard "$paste"; then
+      echo "Copied to the clipboard."
+    else
+      if hk_clipboard_off; then
+        echo "Clipboard is off in your settings, so nothing was copied. Copy the text below by hand."
+      else
+        echo "No clipboard tool was used (run limit-handoff doctor to see the clipboard setting). Copy the text below by hand."
+      fi
+    fi
+  fi
+  echo ""
+  echo "Paste prompt:"
+  printf '%s\n' "$paste"
+  return 0
+}
+
+cmd_recover() {
+  local transcript="" stdout=0 json rc sid md rel note
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --transcript) [ $# -ge 2 ] || usage_err "--transcript needs a file"; transcript="$2"; shift 2 ;;
+      --dir) [ $# -ge 2 ] || usage_err "--dir needs a folder"; set_dir "$2"; shift 2 ;;
+      --stdout) stdout=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) usage_err "unknown option for recover: $1" ;;
+    esac
+  done
+  [ -n "$transcript" ] || usage_err "--transcript is required"
+  transcript="$(expand_path "$transcript")"
+  [ -n "${HK_PROJECT_DIR:-}" ] || set_dir ""
+
+  json="$(hk_recover_json "$transcript" "$(hk_prompt_count)")"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    die "$(hk_recover_note "$rc")"
+  fi
+  sid="$(hk_clean_token "$(basename "$transcript" .jsonl)")"
+  if [ -z "$sid" ]; then sid="manual"; fi
+  note=""
+
+  if [ "$stdout" = "1" ]; then
+    md="$(hk_render_recovered "$json" "$sid" "manual" "recovered by hand" "$transcript" "$note" "" "$(hk_git_state "$HK_PROJECT_DIR")")"
+    printf '%s\n' "$md"
+    return 0
+  fi
+  rel="$(hk_write_recovered "$json" "$sid" "manual" "recovered by hand" "$transcript" "$note" "")" \
+    || die "could not write the recovered context file"
+  echo "Wrote $(hk_abs_path "$rel")"
+  echo "Also saved as $(dirname "$(hk_abs_path "$rel")")/LATEST.md"
+  return 0
+}
+
+cmd_resolve() {
+  local sid="" hf n out rc open
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dir) [ $# -ge 2 ] || usage_err "--dir needs a folder"; set_dir "$2"; shift 2 ;;
+      --session) [ $# -ge 2 ] || usage_err "--session needs an id"; sid="$(hk_clean_token "$2")"; [ -n "$sid" ] || usage_err "--session has no usable characters"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      *) usage_err "unknown option for resolve: $1" ;;
+    esac
+  done
+  [ -n "${HK_PROJECT_DIR:-}" ] || set_dir ""
+
+  hf="$(hk_handoff_path)"
+  [ -f "$hf" ] || die "no $(hk_handoff_name) in $HK_PROJECT_DIR. Run this from your project folder, or add --dir <project folder>."
+  hk_final_link_ok "$hf" || die "$(hk_handoff_name) is a link to a place outside the project. Set LIMIT_HANDOFF_FOLLOW_LINKS=1 in your own settings to allow it."
+
+  # Read and write under the same lock the hooks use, so a hook cannot change the file in between.
+  hk_lock_take "$hf"
+  n="$(HK_RESOLVE_SID="$sid" awk '
+    BEGIN { s = ENVIRON["HK_RESOLVE_SID"]; n = 0 }
+    /^<!-- limit-handoff:cutoff / && /status="unresolved"/ {
+      if (s == "" || index($0, "session=\"" s "\"") > 0) n++
+    }
+    END { print n + 0 }' "$hf")" || { hk_lock_release; die "could not read $hf"; }
+
+  if [ "$n" = "0" ]; then
+    hk_lock_release
+    if [ -n "$sid" ]; then
+      open="$(awk '/^<!-- limit-handoff:cutoff / && /status="unresolved"/ { if (match($0, /session="[^"]*"/)) print substr($0, RSTART + 9, RLENGTH - 10) }' "$hf" | sort -u | tr '\n' ' ')"
+      die "no unresolved cut-off for session $sid in $hf. Open sessions: ${open:-none}."
+    fi
+    echo "No unresolved cut-off blocks found in $hf."
+    return 0
+  fi
+
+  out="$(HK_RESOLVE_SID="$sid" awk '
+    BEGIN { s = ENVIRON["HK_RESOLVE_SID"] }
+    /^<!-- limit-handoff:cutoff / && /status="unresolved"/ {
+      if (s == "" || index($0, "session=\"" s "\"") > 0) sub(/status="unresolved"/, "status=\"resolved\"")
+    }
+    { print }' "$hf")"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    hk_lock_release
+    die "could not update $hf"
+  fi
+  # hk_atomic_write follows a symlinked HANDOFF.md, so the link is kept.
+  printf '%s\n' "$out" | hk_atomic_write "$hf"
+  rc=$?
+  hk_lock_release
+  if [ "$rc" -ne 0 ]; then die "could not update $hf"; fi
+  echo "Marked $n cut-off block(s) as resolved in $hf. The history is kept."
+  return 0
+}
+
+# simulate_sample_copy sample err: copies the bundled sample transcript into the state folder with
+# fresh times, and prints the copy's path. The lines are 45 seconds apart and end now, and the
+# limit resets 2.5 hours from now, so the output looks like a limit that just happened. For a code
+# other than rate_limit the limit line is left out, so no usage-limit details are shown for it.
+simulate_sample_copy() {
+  local src="$1" err="$2" out total
+  out="$(hk_state_dir)/simulate/sample-transcript.jsonl"
+  mkdir -p "$(dirname "$out")" 2>/dev/null || return 1
+  total="$(grep -c . "$src")"
+  jq -c --argjson now "$(date +%s)" --argjson total "$total" --arg err "$err" '
+    input_line_number as $i
+    | if has("timestamp") then .timestamp = (($now - ($total - $i) * 45) | todate) else . end
+    | if (.quotaLimits | type) == "object" then .quotaLimits.resetsAt = ($now + 9000) else . end
+    | if .isApiErrorMessage == true and $err != "rate_limit" then empty else . end
+  ' "$src" 2>/dev/null | hk_atomic_write "$out" || return 1
+  printf '%s\n' "$out"
+}
+
+cmd_simulate() {
+  local dir="" err="rate_limit" transcript="" copy=0 sid payload hf prompt_file rec f allowed_norm before after sample=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dir) [ $# -ge 2 ] || usage_err "--dir needs a folder"; dir="$2"; shift 2 ;;
+      --error) [ $# -ge 2 ] || usage_err "--error needs a code"; err="$2"; shift 2 ;;
+      --transcript) [ $# -ge 2 ] || usage_err "--transcript needs a file"; transcript="$2"; shift 2 ;;
+      --copy) copy=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) usage_err "unknown option for simulate: $1" ;;
+    esac
+  done
+  set_dir "$dir"
+  err="$(hk_clean_token "$err")"
+  [ -n "$err" ] || usage_err "--error needs a code such as rate_limit"
+  if [ -z "$transcript" ] && [ -f "$HK_ROOT/examples/sample-transcript.jsonl" ]; then
+    transcript="$HK_ROOT/examples/sample-transcript.jsonl"
+    sample=1
+  fi
+  transcript="$(expand_path "$transcript")"
+  hk_have_jq || die "simulate needs jq to build its test message. Install jq first."
+  if [ "$sample" = 1 ]; then
+    transcript="$(simulate_sample_copy "$transcript" "$err")" || die "could not prepare the sample transcript"
+  fi
+  allowed_norm="$(hk_conf LIMIT_HANDOFF_ERRORS "$HK_DEFAULT_ERRORS" | tr '|,' '  ')"
+  if ! hk_in_list "$err" $allowed_norm; then
+    echo "Nothing was written: $err is not in LIMIT_HANDOFF_ERRORS. Add it there to test it. Log: $(hk_state_dir)/limit-handoff.log"
+    exit 1
+  fi
+
+  # A unique id per run, so this run's files are found and no older file is mistaken for them.
+  sid="simulated-$(hk_now_stamp)-$$"
+  payload="$(jq -n --arg sid "$sid" --arg cwd "$HK_PROJECT_DIR" --arg tr "$transcript" --arg err "$err" \
+    '{session_id: $sid, transcript_path: $tr, cwd: $cwd, hook_event_name: "StopFailure", error: $err}')" \
+    || die "could not build the test message"
+
+  # The paste prompt counts as written only when this run changed it (an old file is not this run's).
+  before=""
+  if [ -f "$(hk_prompt_path)" ]; then before="$(cksum < "$(hk_prompt_path)")"; fi
+
+  # Without --copy, simulate must never touch the clipboard, so it forces it off.
+  # Notifications stay off unless the user set LIMIT_HANDOFF_NOTIFY in the environment.
+  # With --copy, simulate sets NOTHING: an environment value would beat the user's
+  # config file, so the normal order (env, project file, user file, default) decides.
+  if [ "$copy" = "0" ]; then
+    printf '%s' "$payload" | env LIMIT_HANDOFF_CLIPBOARD=off LIMIT_HANDOFF_NOTIFY="${LIMIT_HANDOFF_NOTIFY:-off}" \
+      CLAUDE_PROJECT_DIR="$HK_PROJECT_DIR" bash "$HK_ROOT/hooks/stop-failure.sh"
+  else
+    printf '%s' "$payload" | env CLAUDE_PROJECT_DIR="$HK_PROJECT_DIR" bash "$HK_ROOT/hooks/stop-failure.sh"
+  fi
+
+  hf="$(hk_handoff_path)"
+  prompt_file="$(hk_prompt_path)"
+  echo "Simulated a StopFailure ($err) with session id $sid in $HK_PROJECT_DIR."
+  if [ -f "$hf" ] && grep -q "limit-handoff:cutoff session=\"$sid\"" "$hf"; then
+    echo "  HANDOFF.md: cut-off block added ($hf)"
+  else
+    echo "  HANDOFF.md: no cut-off block written (see the log)"
+  fi
+  after=""
+  if [ -f "$prompt_file" ]; then after="$(cksum < "$prompt_file")"; fi
+  if [ -f "$prompt_file" ] && [ "$after" != "$before" ]; then
+    echo "  Paste prompt: $prompt_file"
+  else
+    echo "  Paste prompt: not written (see the log)"
+  fi
+  # The recovered file is the one that holds this run's session id. It is in the project folder,
+  # or in the state folder when the project folder cannot be used.
+  rec=""
+  for f in "$HK_PROJECT_DIR/$(hk_recover_dir_name)"/recovered-*.md "$(hk_state_dir)/recovered"/recovered-*.md; do
+    if [ -f "$f" ] && grep -q -F -- "$sid" "$f"; then rec="$f"; fi
+  done
+  if [ -n "$rec" ]; then
+    echo "  Recovered context: $rec"
+  else
+    echo "  Recovered context: not written (see the log)"
+  fi
+  # Success means both the cut-off block and the recovered file for this run were written.
+  if [ -n "$rec" ] && [ -f "$hf" ] && grep -q "limit-handoff:cutoff session=\"$sid\"" "$hf"; then
+    return 0
+  fi
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# doctor
+# ---------------------------------------------------------------------------
+
+cmd_doctor() {
+  local fails=0 cmd found state script dir clip_mode settings="" ver_out ver reg_file reg_count bad_reg=0
+  ok_line() { printf '  [ok]   %s\n' "$1"; }
+  warn_line() { printf '  [warn] %s\n' "$1"; }
+  info_line() { printf '  [info] %s\n' "$1"; }
+  bad_line() { printf '  [FAIL] %s\n' "$1"; fails=$((fails + 1)); }
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --settings) [ $# -ge 2 ] || usage_err "--settings needs a file"; settings="$2"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      *) usage_err "unknown option for doctor: $1" ;;
+    esac
+  done
+
+  echo "limit-handoff $HK_VERSION doctor"
+  if [ "${BASH_VERSINFO[0]:-0}" -ge 3 ]; then
+    ok_line "bash ${BASH_VERSION%%(*} (3.2 or newer is supported)"
+  else
+    bad_line "bash is too old: ${BASH_VERSION}"
+  fi
+
+  if hk_have_jq; then
+    ok_line "jq $(jq --version 2>/dev/null)"
+  else
+    warn_line "jq not found. Transcript recovery is off; the hooks still write the cut-off marker. Install jq to get full recovery."
+  fi
+
+  found=""
+  for cmd in pbcopy wl-copy xclip xsel clip.exe; do
+    if command -v "$cmd" >/dev/null 2>&1; then found="$cmd"; break; fi
+  done
+  if [ -n "$found" ]; then
+    ok_line "clipboard tool: $found"
+  else
+    warn_line "no clipboard tool found (pbcopy, wl-copy, xclip, xsel or clip.exe). The paste prompt is still saved to a file."
+  fi
+  # The clipboard setting the hooks will actually use (env, project file, user file, default).
+  clip_mode="$(hk_conf_trusted LIMIT_HANDOFF_CLIPBOARD auto)"
+  case "$clip_mode" in
+    off|0|no|false|none)
+      ok_line "clipboard setting: off (the paste prompt is saved to a file only)" ;;
+    auto|"")
+      ok_line "clipboard setting: auto" ;;
+    *)
+      if ! hk_valid_cmd_name "$clip_mode"; then
+        warn_line "clipboard setting '$clip_mode' is not allowed. Use auto, off, or a bare command name such as pbcopy (no slashes). Nothing will be copied."
+      elif command -v "$clip_mode" >/dev/null 2>&1; then
+        ok_line "clipboard setting: $clip_mode (found on PATH)"
+      else
+        warn_line "clipboard setting '$clip_mode' is not found on your PATH. Nothing will be copied."
+      fi ;;
+  esac
+
+  found=""
+  for cmd in notify-send terminal-notifier osascript; do
+    if command -v "$cmd" >/dev/null 2>&1; then found="$cmd"; break; fi
+  done
+  if [ -n "$found" ]; then
+    ok_line "notification tool: $found"
+  else
+    warn_line "no notification tool found (notify-send, terminal-notifier or osascript). Notifications are skipped."
+  fi
+
+  state="$(hk_state_dir)"
+  dir="$state"
+  if : > "$dir/.doctor-write-test" 2>/dev/null && rm -f "$dir/.doctor-write-test" 2>/dev/null; then
+    ok_line "state folder is writable: $state"
+  else
+    bad_line "state folder is not writable: $state"
+  fi
+
+  for script in stop-failure prompt-submit session-start pre-compact; do
+    if [ ! -f "$HK_ROOT/hooks/$script.sh" ]; then
+      bad_line "missing hook script: hooks/$script.sh"
+    elif [ ! -x "$HK_ROOT/hooks/$script.sh" ]; then
+      bad_line "hook script is not executable: hooks/$script.sh (run chmod +x)"
+    fi
+  done
+  if [ -f "$HK_ROOT/lib/transcript.jq" ] && [ -f "$HK_ROOT/templates/HANDOFF.template.md" ] && [ -f "$HK_ROOT/templates/paste-prompt.txt" ]; then
+    ok_line "lib and templates are present"
+  else
+    bad_line "lib or templates are missing under $HK_ROOT"
+  fi
+
+  # The Claude Code version. The StopFailure hook needs 2.1.78 or newer. Warnings and
+  # notes here never change the exit code; only the required checks above do.
+  if command -v claude >/dev/null 2>&1; then
+    ver_out="$(claude --version 2>/dev/null </dev/null)"
+    ver="$(printf '%s\n' "$ver_out" | grep -o '[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*' | head -n 1)"
+    if [ -z "$ver" ]; then
+      info_line "could not read a version from 'claude --version'. Version check skipped."
+    elif hk_version_at_least "$ver" "2.1.78"; then
+      ok_line "Claude Code $ver (2.1.78 or newer, so the StopFailure hook is available)"
+    else
+      warn_line "Claude Code $ver is older than 2.1.78, so the StopFailure hook may not exist. Update Claude Code."
+    fi
+  else
+    info_line "claude command not found on PATH. Version check skipped."
+  fi
+
+  # Double registration: the plugin and a settings file both run the kit's hooks, so each
+  # hook would run twice. The settings file is only read. Use --settings, or the default
+  # ~/.claude/settings.json when it exists.
+  if [ -n "$settings" ]; then
+    reg_file="$(expand_path "$settings")"
+    if [ ! -f "$reg_file" ]; then
+      info_line "settings file not found: $reg_file. Double registration not checked."
+    fi
+  else
+    reg_file="${HOME:-}/.claude/settings.json"
+  fi
+  # The plugin can be turned on in any of the settings files Claude Code reads (see install).
+  local plug_on=0 cand_reg
+  for cand_reg in "$reg_file" "$(dirname "$reg_file")/settings.local.json" "${HOME:-}/.claude/settings.json"; do
+    if hk_plugin_enabled "$cand_reg"; then plug_on=1; fi
+  done
+  # A settings file that exists but is not valid JSON cannot be checked. That is a problem (exit 2).
+  if [ -f "$reg_file" ] && hk_have_jq && ! settings_text_blank "$(cat "$reg_file" 2>/dev/null)" \
+    && ! jq -e 'type == "object"' "$reg_file" >/dev/null 2>&1; then
+    warn_line "$reg_file is not valid JSON, so its hooks could not be checked. Fix the file, then run doctor again."
+    bad_reg=1
+  fi
+  if [ -f "$reg_file" ] && hk_have_jq && [ "$plug_on" = 1 ]; then
+    reg_count="$(jq -r --arg mode count --arg root "$HK_ROOT" --arg errors "" --argjson sel '[]' \
+      -f "$HK_ROOT/lib/settings.jq" "$reg_file" 2>/dev/null)"
+    if [ "${reg_count:-0}" -gt 0 ] 2>/dev/null; then
+      warn_line "limit-handoff hooks are registered twice: the plugin is turned on, and $reg_file has the kit hooks too. Each hook will run twice. Fix: limit-handoff uninstall --settings $reg_file"
+    fi
+  fi
+
+  if [ "$bad_reg" = 1 ]; then
+    echo "Settings file is not valid JSON. See the line above."
+    return 2
+  fi
+  if [ "$fails" -gt 0 ]; then
+    echo "$fails problem(s) found."
+    return 1
+  fi
+  echo "All required checks passed."
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
+main() {
+  case "${1:-}" in
+    install) shift; cmd_install "$@" ;;
+    uninstall) shift; cmd_uninstall "$@" ;;
+    status) shift; cmd_status "$@" ;;
+    prompt) shift; cmd_prompt "$@" ;;
+    recover) shift; cmd_recover "$@" ;;
+    resolve) shift; cmd_resolve "$@" ;;
+    simulate) shift; cmd_simulate "$@" ;;
+    doctor) shift; cmd_doctor "$@" ;;
+    -h|--help|help) usage; exit 0 ;;
+    -v|--version|version) echo "limit-handoff $HK_VERSION"; exit 0 ;;
+    "") usage >&2; exit 2 ;;
+    *) usage_err "unknown command: $1" ;;
+  esac
+}
+
+main "$@"

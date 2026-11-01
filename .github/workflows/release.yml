@@ -1,0 +1,96 @@
+name: Release
+
+# Runs when a version tag such as v1.0.0 is pushed.
+# It tests the tagged code, checks the tag matches plugin.json, builds a source
+# tarball from git, signs a build provenance attestation for it, and creates the
+# GitHub Release with the matching CHANGELOG section as its notes.
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: /bin/bash tests/run.sh
+
+  release:
+    name: Publish release
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write      # create the GitHub Release
+      id-token: write      # sign the attestation (OIDC, no stored secret)
+      attestations: write  # store the attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the tag matches plugin.json
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(jq -r .version .claude-plugin/plugin.json)"
+          if [ "v$version" != "$TAG" ]; then
+            echo "Tag $TAG does not match plugin.json version $version" >&2
+            exit 1
+          fi
+          # The CLI prints HK_VERSION from lib/common.sh, so that must match too.
+          hk_version="$(sed -n 's/^HK_VERSION="\([^"]*\)".*/\1/p' lib/common.sh | head -n 1)"
+          if [ "$hk_version" != "$version" ]; then
+            echo "HK_VERSION in lib/common.sh ($hk_version) does not match plugin.json ($version)" >&2
+            exit 1
+          fi
+
+      - name: Build the source tarball
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz --prefix="limit-handoff-${TAG#v}/" \
+            -o "dist/limit-handoff-${TAG#v}.tar.gz" "$TAG"
+          (cd dist && sha256sum ./*.tar.gz > SHA256SUMS)
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.tar.gz
+
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          awk -v v="${TAG#v}" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > dist/NOTES.md
+          if [ ! -s dist/NOTES.md ]; then
+            echo "CHANGELOG.md has no section for ${TAG#v}" >&2
+            exit 1
+          fi
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --title "limit-handoff ${TAG#v}" \
+            --notes-file dist/NOTES.md \
+            --verify-tag \
+            dist/*.tar.gz dist/SHA256SUMS

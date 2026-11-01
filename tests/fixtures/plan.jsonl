@@ -1,0 +1,4 @@
+{"type":"user","message":{"role":"user","content":"Plan the migration in steps"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"p1","name":"mcp__x__update_plan","input":{"items":[{"content":"Step one","status":"pending"},{"content":"Step two","status":"pending"},{"content":"Step three","status":"pending"}]}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"p2","name":"mcp__x__update_plan","input":{"items":[{"advance":true}]}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"p3","name":"mcp__x__update_plan","input":{"items":[{"advance":true}]}}]}}

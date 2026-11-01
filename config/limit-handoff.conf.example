@@ -1,0 +1,68 @@
+# limit-handoff configuration example.
+#
+# Copy this file to one of these places:
+#   <project>/.claude/limit-handoff.conf        (project settings)
+#   ~/.config/limit-handoff/config               (your settings for all projects)
+#
+# Order of precedence: environment variable > project file > user file > built-in default.
+# Only lines like KEY=VALUE are read. Nothing in this file is run.
+# Keys that are read from the environment and the user file only, never from the project file
+# (a cloned repository must not choose them):
+#   LIMIT_HANDOFF_CLIPBOARD, LIMIT_HANDOFF_NOTIFY, LIMIT_HANDOFF_STATE_DIR,
+#   LIMIT_HANDOFF_FILE, LIMIT_HANDOFF_PROMPT_FILE, LIMIT_HANDOFF_RECOVER_DIR,
+#   LIMIT_HANDOFF_TAIL_LINES, LIMIT_HANDOFF_KEEP, LIMIT_HANDOFF_FOLLOW_LINKS.
+
+# Handoff file name, relative to the project folder. Must stay inside the project. (Your own settings only.)
+LIMIT_HANDOFF_FILE=HANDOFF.md
+
+# Follow a link that points outside the project (for example a dotfiles copy of HANDOFF.md). 0 refuses
+# such links, which is the default. Your own settings only: a link committed in a repository is never followed unless you turn this on here. Set 1 to allow.
+# LIMIT_HANDOFF_FOLLOW_LINKS=0
+
+# Paste prompt file name, relative to the project folder.
+LIMIT_HANDOFF_PROMPT_FILE=PASTE-PROMPT.txt
+
+# Where logs and per-session markers are kept. Outside the project.
+# LIMIT_HANDOFF_STATE_DIR=~/.local/state/limit-handoff
+
+# Folder inside the project for recovered-context files. The kit adds its own .gitignore there, so the chat text stays out of git.
+LIMIT_HANDOFF_RECOVER_DIR=.handoff
+
+# How many recovered-context files to keep in that folder; the oldest are deleted. 0 keeps them all. (Your own settings only.)
+LIMIT_HANDOFF_KEEP=30
+
+# How many transcript lines to read from the end of the session. (Your own settings only.)
+LIMIT_HANDOFF_TAIL_LINES=4000
+
+# How many of your last messages to recover.
+LIMIT_HANDOFF_PROMPTS=5
+
+# Copy the paste prompt to the clipboard: auto, off, or a command name such as pbcopy.
+LIMIT_HANDOFF_CLIPBOARD=auto
+
+# Show a desktop notification: auto or off.
+LIMIT_HANDOFF_NOTIFY=auto
+
+# When to remind about HANDOFF.md at the start of a message: always, stale, or off.
+LIMIT_HANDOFF_REMIND=stale
+
+# Minutes before HANDOFF.md counts as stale.
+LIMIT_HANDOFF_STALE_MIN=20
+
+# Create HANDOFF.md from the transcript when it is missing: 1 or 0.
+LIMIT_HANDOFF_CREATE_IF_MISSING=1
+
+# Which StopFailure error codes cause a handoff. Separate with spaces or |.
+LIMIT_HANDOFF_ERRORS=rate_limit billing_error unknown overloaded server_error
+
+# At a new chat, write a handoff for a chat that hit a limit and got none (1 or 0).
+LIMIT_HANDOFF_CATCHUP=1
+
+# How many hours back the catch-up looks for chats that stopped on a limit.
+LIMIT_HANDOFF_CATCHUP_HOURS=48
+
+# Ignore a repeat StopFailure for the same chat within this many seconds (0 turns this off).
+LIMIT_HANDOFF_DEBOUNCE_SEC=120
+
+# Add a section with facts from git (branch, last commit, changed files) to recovered files: 1 or 0.
+LIMIT_HANDOFF_GIT=1
