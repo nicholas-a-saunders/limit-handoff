@@ -10,9 +10,9 @@
 # has passed is written as "the reset time has passed" (see hk_limit_text), which these tests do not check.
 FIVE_EPOCH=1893519600
 FIVE_UTC="Tue 01 Jan 17:40 UTC"
-# Epoch 1793610000 is Mon 02 Nov 2026 09:00 UTC.
-WEEK_EPOCH=1793610000
-WEEK_UTC="Mon 02 Nov 09:00 UTC"
+# Epoch 1894006800 is Mon 07 Jan 2030 09:00 UTC (in the future, so no "reset time has passed" wording).
+WEEK_EPOCH=1894006800
+WEEK_UTC="Mon 07 Jan 09:00 UTC"
 
 # load_common: loads lib/common.sh into this test shell (the same way test_common.sh does).
 load_common() {
@@ -98,7 +98,7 @@ test_transcript_synthetic_error_line_is_never_the_last_reply() {
 test_transcript_last_limit_line_wins() {
   local tr="$TL_TMP/two-limits.jsonl" out
   jq -c -n '{type:"assistant", isApiErrorMessage:true, error:"rate_limit", isSidechain:false, quotaLimits:{rateLimitType:"five_hour", resetsAt:1893519600}, message:{role:"assistant", content:[{type:"text", text:"first"}]}}' > "$tr"
-  jq -c -n '{type:"assistant", isApiErrorMessage:true, error:"rate_limit", isSidechain:false, quotaLimits:{rateLimitType:"seven_day", resetsAt:1793610000}, message:{role:"assistant", content:[{type:"text", text:"second"}]}}' >> "$tr"
+  jq -c -n '{type:"assistant", isApiErrorMessage:true, error:"rate_limit", isSidechain:false, quotaLimits:{rateLimitType:"seven_day", resetsAt:1894006800}, message:{role:"assistant", content:[{type:"text", text:"second"}]}}' >> "$tr"
   out="$(recover_json "$tr")"
   assert_eq "seven_day" "$(printf '%s' "$out" | jq -r '.limit.type')" "the newest limit line is used"
 }
