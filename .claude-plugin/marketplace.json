@@ -4,12 +4,12 @@
     "name": "Nicholas Saunders",
     "url": "https://github.com/nicholas-a-saunders"
   },
-  "description": "When Claude Code stops on a usage limit, save a HANDOFF.md, recovered context and a paste prompt so a new chat, account or machine can carry on.",
+  "description": "Ran out of usage on one Claude account? Switch to another and carry on with the same task: saves HANDOFF.md, the recent context and a paste prompt for the new chat.",
   "plugins": [
     {
       "name": "limit-handoff",
       "source": "./",
-      "description": "When Claude Code stops on a usage limit, save a HANDOFF.md, recovered context and a paste prompt so a new chat, account or machine can carry on."
+      "description": "Ran out of usage on one Claude account? Switch to another and carry on with the same task: saves HANDOFF.md, the recent context and a paste prompt for the new chat."
     }
   ]
 }

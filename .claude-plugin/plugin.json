@@ -2,7 +2,7 @@
   "name": "limit-handoff",
   "displayName": "Limit Handoff",
   "version": "1.0.0",
-  "description": "When Claude Code stops on a usage limit, save a HANDOFF.md, recovered context and a paste prompt so a new chat, account or machine can carry on.",
+  "description": "Ran out of usage on one Claude account? Switch to another and carry on with the same task: saves HANDOFF.md, the recent context and a paste prompt for the new chat.",
   "author": {
     "name": "Nicholas Saunders",
     "url": "https://github.com/nicholas-a-saunders"
@@ -10,5 +10,14 @@
   "homepage": "https://github.com/nicholas-a-saunders/limit-handoff",
   "repository": "https://github.com/nicholas-a-saunders/limit-handoff",
   "license": "MIT",
-  "keywords": ["handoff", "usage-limit", "rate-limit", "hooks", "continuity", "claude-code"]
+  "keywords": [
+    "handoff",
+    "usage-limit",
+    "rate-limit",
+    "hooks",
+    "continuity",
+    "claude-code",
+    "multi-account",
+    "account-switching"
+  ]
 }
