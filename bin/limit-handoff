@@ -42,7 +42,8 @@ Commands:
   resolve     Mark cut-off blocks as resolved. The history is kept.
   simulate    Feed a fake StopFailure to the hook, to see what it writes. Clipboard is off unless --copy.
   doctor      Check jq, bash, clipboard, notifications, the state folder and the Claude Code
-              version. With --settings FILE (default ~/.claude/settings.json if it exists),
+              version. With --settings FILE (default: your Claude Code settings.json, in
+              $CLAUDE_CONFIG_DIR when it is set, else ~/.claude, if it exists),
               also check for hooks registered twice (plugin and settings). Read only.
 
 Exit codes: 0 ok, 1 operational failure, 2 usage error.
@@ -236,7 +237,7 @@ cmd_install() {
   # too would run each one twice. This only warns; the install still goes ahead.
   # The plugin can be turned on in any of the settings files Claude Code reads, so all of them are checked.
   local cand plug_file=""
-  for cand in "$settings" "$(dirname "$settings")/settings.json" "$(dirname "$settings")/settings.local.json" "${HOME:-}/.claude/settings.json"; do
+  for cand in "$settings" "$(dirname "$settings")/settings.json" "$(dirname "$settings")/settings.local.json" "$(hk_user_settings_file)"; do
     if hk_plugin_enabled "$cand"; then plug_file="$cand"; break; fi
   done
   if [ -n "$plug_file" ]; then
@@ -484,10 +485,22 @@ cmd_resolve() {
     return 0
   fi
 
+  # The marker line gets status="resolved". The visible first line of the same block gets a
+  # "(resolved)" mark too, so a person reading the file can see it. The rest of the text stays.
   out="$(HK_RESOLVE_SID="$sid" awk '
-    BEGIN { s = ENVIRON["HK_RESOLVE_SID"] }
-    /^<!-- limit-handoff:cutoff / && /status="unresolved"/ {
-      if (s == "" || index($0, "session=\"" s "\"") > 0) sub(/status="unresolved"/, "status=\"resolved\"")
+    BEGIN { s = ENVIRON["HK_RESOLVE_SID"]; mark = 0 }
+    /^<!-- limit-handoff:cutoff / {
+      mark = 0
+      if (/status="unresolved"/ && (s == "" || index($0, "session=\"" s "\"") > 0)) {
+        sub(/status="unresolved"/, "status=\"resolved\"")
+        mark = 1
+      }
+      print; next
+    }
+    /^<!-- \/limit-handoff:cutoff -->/ { mark = 0; print; next }
+    mark && /^> ⚠️ \*\*Session cut off\*\*/ {
+      sub(/^> ⚠️ \*\*Session cut off\*\*/, "> ✅ **Session cut off (resolved)**")
+      mark = 0
     }
     { print }' "$hf")"
   rc=$?
@@ -713,18 +726,18 @@ cmd_doctor() {
 
   # Double registration: the plugin and a settings file both run the kit's hooks, so each
   # hook would run twice. The settings file is only read. Use --settings, or the default
-  # ~/.claude/settings.json when it exists.
+  # user settings.json (hk_user_settings_file: $CLAUDE_CONFIG_DIR or ~/.claude) when it exists.
   if [ -n "$settings" ]; then
     reg_file="$(expand_path "$settings")"
     if [ ! -f "$reg_file" ]; then
       info_line "settings file not found: $reg_file. Double registration not checked."
     fi
   else
-    reg_file="${HOME:-}/.claude/settings.json"
+    reg_file="$(hk_user_settings_file)"
   fi
   # The plugin can be turned on in any of the settings files Claude Code reads (see install).
   local plug_on=0 cand_reg
-  for cand_reg in "$reg_file" "$(dirname "$reg_file")/settings.local.json" "${HOME:-}/.claude/settings.json"; do
+  for cand_reg in "$reg_file" "$(dirname "$reg_file")/settings.local.json" "$(hk_user_settings_file)"; do
     if hk_plugin_enabled "$cand_reg"; then plug_on=1; fi
   done
   # A settings file that exists but is not valid JSON cannot be checked. That is a problem (exit 2).

@@ -36,7 +36,7 @@ test_attack_spec_cutoff_block_has_the_exact_shape() {
   esac
   assert_eq "<!-- /limit-handoff:cutoff -->" "$(printf '%s\n' "$block" | tail -n 1)" "block must end with the close marker"
   case "$(printf '%s\n' "$block" | sed -n '2p')" in
-    '> ⚠️ **Session cut off** (usage limit reached) at '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' '[0-9][0-9]:[0-9][0-9]'. The steps above may be slightly behind.') ;;
+    '> ⚠️ **Session cut off** (rate or usage limit reached) at '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' '[0-9][0-9]:[0-9][0-9]'. The steps above may be slightly behind.') ;;
     *) fail "reason line is wrong: $(printf '%s\n' "$block" | sed -n '2p')" ;;
   esac
   case "$(printf '%s\n' "$block" | sed -n '3p')" in
@@ -51,7 +51,7 @@ test_attack_spec_reason_words_for_each_error_code() {
   local p code want pair
   p="$CLAUDE_PROJECT_DIR"
   export LIMIT_HANDOFF_ERRORS="rate_limit billing_error overloaded server_error unknown invalid_request"
-  for pair in "rate_limit|usage limit reached" "billing_error|billing/credit limit" \
+  for pair in "rate_limit|rate or usage limit reached" "billing_error|billing/credit limit" \
               "overloaded|API overloaded" "server_error|API server error" \
               "unknown|unknown API error" "invalid_request|invalid_request"; do
     code="${pair%%|*}"; want="${pair#*|}"
@@ -70,7 +70,7 @@ test_attack_spec_created_handoff_goal_and_status_wording() {
   assert_exit 0 "$TL_RC"
   assert_file_contains "$p/HANDOFF.md" "## Goal
 Build the login page for the demo app" "Goal must be the first prompt"
-  assert_file_contains "$p/HANDOFF.md" "cut off (usage limit reached) at " "status must start with the cut-off reason"
+  assert_file_contains "$p/HANDOFF.md" "cut off (rate or usage limit reached) at " "status must start with the cut-off reason"
   assert_file_contains "$p/HANDOFF.md" "— auto-created by limit-handoff from the transcript; verify before trusting" \
     "status must end with the spec's verification sentence"
 }
@@ -132,7 +132,7 @@ test_attack_spec_prompt_submit_unresolved_wording() {
   tl_run "$TL_HOOK_PROMPT" "$(tl_payload_plain UserPromptSubmit "pr-sess" "$p" "")"
   assert_exit 0 "$TL_RC"
   case "$TL_OUT" in
-    "HANDOFF.md has an unresolved cut-off from a previous session ("*", usage limit reached). Read HANDOFF.md and .handoff/recovered-"*" before anything else, check for a half-finished step, then run \`limit-handoff resolve\` (or delete the cut-off block) once recovered.") ;;
+    "HANDOFF.md has an unresolved cut-off from a previous session ("*", rate or usage limit reached). Read HANDOFF.md and .handoff/recovered-"*" before anything else, check for a half-finished step, then run \`limit-handoff resolve\` (or delete the cut-off block) once recovered.") ;;
     *) fail "unresolved reminder does not match the spec wording: $TL_OUT" ;;
   esac
 }

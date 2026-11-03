@@ -35,7 +35,7 @@ These keep the hooks safe to run on every Claude Code session.
 - **Text is data, never code.** No `eval`. Never `source` anything except `lib/common.sh`. Never use data as a `printf` format. Quote every variable.
 - **Sanitise what you show.** Text from a transcript, `HANDOFF.md`, git or a hook payload goes through the existing checks (`hk_clean_token`, `hk_known_code`, `hk_shown_path_ok`, the `fence_for` rule) before it reaches a file, a notification or hook output.
 - **Write files atomically** with `hk_atomic_write`.
-- **No network, no telemetry.** The kit runs only local tools: `jq`, `git` (read-only commands), the clipboard tool and the notification tool.
+- **No network, no telemetry.** The kit runs only local tools: `jq`, `git` (read-only commands), the clipboard tool, the notification tool, and `claude --version` (in `doctor` only).
 - **Every change has a test.** Put it in `tests/test_<topic>.sh`, next to the existing ones. Use synthetic fixtures only, never a real transcript.
 - **Match the style.** `hk_` function names, a short plain-English comment above each function, `LIMIT_HANDOFF_*` config keys added to `config/limit-handoff.conf.example`.
 

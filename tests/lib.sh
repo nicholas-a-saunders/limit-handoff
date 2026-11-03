@@ -111,6 +111,8 @@ tl_setup() {
     unset "$v"
   done
   unset CLAUDE_PLUGIN_DATA
+  # A CLAUDE_CONFIG_DIR from the person running the tests must not change the defaults.
+  unset CLAUDE_CONFIG_DIR
   # Plugin mode is the default in tests: hook messages name the command "limit-handoff".
   # A test that needs the settings-file mode (a full path) unsets this first.
   export CLAUDE_PLUGIN_ROOT="$TL_ROOT"

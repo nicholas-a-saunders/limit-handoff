@@ -679,7 +679,7 @@ test_d7_block_time_is_the_time_of_the_limit_line() {
   tl_run "$TL_HOOK_STOP" "$(tl_payload_stop "d7-time" "$tr" "$p" "rate_limit")"
   assert_exit 0 "$TL_RC"
   assert_file_contains "$p/HANDOFF.md" 'at="2026-10-29T10:00:00Z"' "the block time is the limit line's own time (batch D #13)"
-  assert_file_contains "$p/HANDOFF.md" "(usage limit reached) at 2026-10-29 10:00." "the cut-off line uses the same time (batch D #13)"
+  assert_file_contains "$p/HANDOFF.md" "(rate or usage limit reached) at 2026-10-29 10:00." "the cut-off line uses the same time (batch D #13)"
 }
 
 test_d7_a_reset_time_in_the_past_says_it_has_passed() {

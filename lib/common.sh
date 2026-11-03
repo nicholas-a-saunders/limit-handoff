@@ -397,6 +397,16 @@ hk_state_dir() {
   printf '%s\n' "$dir"
 }
 
+# hk_user_settings_file: the user's Claude Code settings.json. Claude Code keeps it in
+# $CLAUDE_CONFIG_DIR when that is set (some people use one config folder per account), else in
+# ~/.claude. Only an absolute CLAUDE_CONFIG_DIR is used.
+hk_user_settings_file() {
+  case "${CLAUDE_CONFIG_DIR:-}" in
+    /*) printf '%s/settings.json\n' "${CLAUDE_CONFIG_DIR%/}" ;;
+    *) printf '%s/.claude/settings.json\n' "${HOME:-}" ;;
+  esac
+}
+
 # hk_log level message: appends one line to the state log. Never fails.
 hk_log() {
   local dir msg
@@ -484,6 +494,24 @@ hk_conf_trusted() {
     printf '%s\n' "$val"; return 0
   fi
   printf '%s\n' "$def"
+}
+
+# The keys hk_conf_trusted and hk_int_conf_trusted read. A project file may not set them.
+HK_USER_ONLY_KEYS="LIMIT_HANDOFF_FILE LIMIT_HANDOFF_PROMPT_FILE LIMIT_HANDOFF_RECOVER_DIR LIMIT_HANDOFF_TAIL_LINES LIMIT_HANDOFF_KEEP LIMIT_HANDOFF_FOLLOW_LINKS LIMIT_HANDOFF_CLIPBOARD LIMIT_HANDOFF_NOTIFY LIMIT_HANDOFF_STATE_DIR"
+
+# hk_note_ignored_project_keys: logs one warning when the project file sets user-only keys, so
+# the user can see why those values had no effect. Only the key names are logged.
+hk_note_ignored_project_keys() {
+  local f k found=""
+  [ -n "${HK_PROJECT_DIR:-}" ] || return 0
+  f="$HK_PROJECT_DIR/.claude/limit-handoff.conf"
+  [ -f "$f" ] || return 0
+  for k in $HK_USER_ONLY_KEYS; do
+    if _hk_conf_read_file "$f" "$k" >/dev/null 2>&1; then found="$found $k"; fi
+  done
+  [ -n "$found" ] || return 0
+  hk_log warn "the project file .claude/limit-handoff.conf sets$found. These keys are read only from the environment or your own config, so the project values are ignored."
+  return 0
 }
 
 # hk_bool_conf KEY default: prints 1 or 0. Accepts 1/0, on/off, yes/no, true/false.
@@ -842,7 +870,9 @@ hk_notify() {
 # "unknown API error", because the text may come from a file that someone else wrote.
 hk_reason_for() {
   case "$1" in
-    rate_limit) printf '%s\n' "usage limit reached" ;;
+    # Claude Code uses rate_limit for account usage limits and for short API rate limits. Without
+    # limit details the two cannot be told apart, so the plain text names both (see hk_base_reason).
+    rate_limit) printf '%s\n' "rate or usage limit reached" ;;
     billing_error) printf '%s\n' "billing/credit limit" ;;
     overloaded) printf '%s\n' "API overloaded" ;;
     server_error) printf '%s\n' "API server error" ;;
@@ -856,6 +886,17 @@ hk_reason_for() {
       fi
       ;;
   esac
+}
+
+# hk_base_reason error_code detail: the reason before the limit details. A rate_limit stop with
+# limit details (a limit type, a reset time, or "session limit" in the message) is an account
+# usage limit, so it says "usage limit reached". Without details it keeps the plain text.
+hk_base_reason() {
+  if [ "$1" = "rate_limit" ] && [ -n "${2:-}" ]; then
+    printf '%s\n' "usage limit reached"
+  else
+    hk_reason_for "$1"
+  fi
 }
 
 # hk_known_code text: prints the text when it is a known StopFailure code, else "unknown".
@@ -1453,8 +1494,9 @@ hk_derive_next_step() {
     | (.[0].content // empty) | gsub("\n"; " ")' 2>/dev/null
 }
 
-# hk_paste_text next_step recovered_abs reason
-# Prints the paste prompt from templates/paste-prompt.txt.
+# hk_paste_text next_step recovered_abs reason [mode] [has_hf] [session]
+# Prints the paste prompt from templates/paste-prompt.txt. session (a stop's own chat) is left out
+# when other unresolved cut-offs are counted.
 hk_paste_text() {
   local next="$1" rec="$2" reason="$3" mode="${4:-stop}" has_hf="${5:-1}"
   local hf why read_part next_part keep_part
@@ -1485,6 +1527,21 @@ hk_paste_text() {
     next_part="Read the recovered file, work out the next step, and tell me what it is before you change any file."
   else
     next_part="Work out the next step from the project files, and tell me what it is before you change any file."
+  fi
+  # Unresolved cut-offs from other chats are named too, so none is missed. A stop builds this
+  # prompt before its own block is written, and its own session is left out of the count anyway.
+  local open_n
+  if [ "$has_hf" = 1 ] && [ -f "$hf" ]; then
+    open_n="$(HK_PASTE_SID="${6:-}" awk '
+      BEGIN { s = ENVIRON["HK_PASTE_SID"]; n = 0 }
+      /^<!-- limit-handoff:cutoff / && /status="unresolved"/ {
+        if (s == "" || index($0, "session=\"" s "\"") == 0) n++
+      }
+      END { print n + 0 }' "$hf" 2>/dev/null)"
+    case "$open_n" in ''|*[!0-9]*) open_n=0 ;; esac
+    if [ "$open_n" -ge 1 ]; then
+      read_part="$read_part It also has unresolved cut-offs from earlier chats ($open_n): read the recovered file each one names."
+    fi
   fi
   keep_part=""
   if [ "$has_hf" = 1 ]; then keep_part=" Keep $(hk_handoff_name) updated as you work."; fi
@@ -1830,8 +1887,8 @@ hk_cutoff_message() {
   local hf="$1" block="$2" n at reason read_text sid ids
   n="$(hk_unresolved_count "$hf")"
   at="$(hk_block_at_human "$block")"
-  reason="$(hk_reason_for "$(hk_block_error "$block")")"
-  reason="$(hk_with_detail "$reason" "$(hk_block_detail "$block")")"
+  reason="$(hk_block_detail "$block")"
+  reason="$(hk_with_detail "$(hk_base_reason "$(hk_block_error "$block")" "$reason")" "$reason")"
   read_text="$(hk_read_first_text "$block")"
   sid="$(hk_block_session "$block")"
   if [ "${n:-0}" -gt 1 ]; then
@@ -1973,7 +2030,7 @@ hk_catchup() {
     # Print the line only when the block for this chat is really in HANDOFF.md.
     if [ -f "$hf" ] && grep -F -q "limit-handoff:cutoff session=\"$key\"" "$hf"; then
       if [ "$code" = "rate_limit" ]; then
-        printf 'limit-handoff wrote a handoff for the previous chat (%s). It hit a usage limit and had no handoff.\n' \
+        printf 'limit-handoff wrote a handoff for the previous chat (%s). It hit a rate or usage limit and had no handoff.\n' \
           "$(printf '%s' "$key" | cut -c1-8)"
       else
         printf 'limit-handoff wrote a handoff for the previous chat (%s). It stopped (%s) and had no handoff.\n' \

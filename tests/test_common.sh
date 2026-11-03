@@ -62,7 +62,7 @@ test_first_next_step_stops_at_next_heading_and_handles_no_section() {
 
 test_reason_text() {
   load_common
-  assert_eq "usage limit reached" "$(hk_reason_for rate_limit)"
+  assert_eq "rate or usage limit reached" "$(hk_reason_for rate_limit)"
   assert_eq "billing/credit limit" "$(hk_reason_for billing_error)"
   assert_eq "API overloaded" "$(hk_reason_for overloaded)"
   assert_eq "API server error" "$(hk_reason_for server_error)"

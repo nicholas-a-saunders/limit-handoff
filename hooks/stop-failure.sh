@@ -66,8 +66,8 @@ hk_stop_failure_main() {
     hk_log info "duplicate StopFailure for $sid ignored"
     return 0
   fi
-  base_reason="$(hk_reason_for "$err")"
   hk_log info "StopFailure error=$err session=$sid project=$HK_PROJECT_DIR"
+  hk_note_ignored_project_keys
 
   # 1. Recovered context from the end of the transcript.
   json="$(hk_recover_json "${HK_TRANSCRIPT:-}" "$(hk_prompt_count)")"
@@ -84,6 +84,8 @@ hk_stop_failure_main() {
   ltype="$(hk_limit_type "$json")"
   lepoch="$(hk_limit_resets "$json")"
   detail="$(hk_limit_detail "$json" "${HK_LAST_MSG:-}")"
+  # The details decide the wording: a rate_limit with details is an account usage limit.
+  base_reason="$(hk_base_reason "$err" "$detail")"
   reason="$(hk_with_detail "$base_reason" "$detail")"
   if [ -n "$detail" ]; then hk_log info "limit details: $detail"; fi
 
@@ -134,7 +136,7 @@ hk_stop_failure_main() {
     derived="$(hk_derive_next_step "$json")"
     next_step="$derived"
   fi
-  paste="$(hk_paste_text "$next_step" "$rec_abs" "$reason" stop "$has_hf")"
+  paste="$(hk_paste_text "$next_step" "$rec_abs" "$reason" stop "$has_hf" "$sid")"
   # hf_written: 1 when the handoff for this chat is saved (or there is nothing to save). 0 when the
   # write failed, so the started marker is removed and a later catch-up may retry this chat.
   hf_written=1
@@ -156,7 +158,7 @@ hk_stop_failure_main() {
       hf_written=0
       # There is no HANDOFF.md after all, so the paste prompt must not tell the new chat to read it.
       has_hf=0
-      paste="$(hk_paste_text "$next_step" "$rec_abs" "$reason" stop 0)"
+      paste="$(hk_paste_text "$next_step" "$rec_abs" "$reason" stop 0 "$sid")"
     fi
   else
     hk_log info "HANDOFF.md is missing and LIMIT_HANDOFF_CREATE_IF_MISSING=0; not created"

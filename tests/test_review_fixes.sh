@@ -261,7 +261,7 @@ test_f5_reason_for_never_echoes_an_unknown_code() {
   load_common
   assert_eq "unknown API error" "$(hk_reason_for "$INJECT")" "an unknown code must not be echoed (F5)"
   assert_eq "invalid_request" "$(hk_reason_for invalid_request)" "a known code is still shown (guard for F5)"
-  assert_eq "usage limit reached" "$(hk_reason_for rate_limit)"
+  assert_eq "rate or usage limit reached" "$(hk_reason_for rate_limit)"
 }
 
 test_f5_block_error_accessor_gives_unknown_for_bad_codes() {

@@ -358,12 +358,12 @@ test_hostile_block_attributes_are_never_printed() {
     '<!-- /limit-handoff:cutoff -->' > "$p/HANDOFF.md"
   tl_run "$TL_HOOK_PROMPT" "$(tl_payload_plain UserPromptSubmit "h1" "$p" "")"
   assert_exit 0 "$TL_RC"
-  assert_contains "$TL_OUT" "(2026-10-29 10:00, usage limit reached)" "the reason has no detail from unsafe attributes"
+  assert_contains "$TL_OUT" "(2026-10-29 10:00, rate or usage limit reached)" "the reason has no detail from unsafe attributes"
   assert_not_contains "$TL_OUT" "CANARY" "nothing unsafe is printed"
   assert_not_contains "$TL_OUT" "touch" "nothing unsafe is printed"
   tl_run "$TL_HOOK_SESSION" "$(tl_payload_plain SessionStart "h1" "$p" "startup")"
   assert_exit 0 "$TL_RC"
-  assert_contains "$TL_OUT" "(2026-10-29 10:00, usage limit reached)" "session start has the same plain reason"
+  assert_contains "$TL_OUT" "(2026-10-29 10:00, rate or usage limit reached)" "session start has the same plain reason"
   assert_not_contains "$TL_OUT" "CANARY" "session start output is clean"
 }
 
@@ -386,8 +386,8 @@ test_no_limit_means_plain_wording_everywhere() {
   assert_exit 0 "$TL_RC"
   rec="$(recovered_for "$p" "plain-se")"
   assert_file_not_contains "$rec" "- Limit:" "no limit line without a limit"
-  assert_file_contains "$p/HANDOFF.md" "(usage limit reached)" "plain cut-off line"
-  assert_eq "Claude Code stopped: usage limit reached" "$(sed -n 1p "$TEST_OUT/notify.txt")"
+  assert_file_contains "$p/HANDOFF.md" "(rate or usage limit reached)" "plain cut-off line"
+  assert_eq "Claude Code stopped: rate or usage limit reached" "$(sed -n 1p "$TEST_OUT/notify.txt")"
   assert_eq "Handoff saved; paste prompt saved to project/PASTE-PROMPT.txt. Paste it into a new chat." \
     "$(sed -n 2p "$TEST_OUT/notify.txt")" "no detail at the start of the body"
 }

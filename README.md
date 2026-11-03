@@ -6,13 +6,15 @@
 [![Release](https://img.shields.io/github/v/release/nicholas-a-saunders/limit-handoff)](https://github.com/nicholas-a-saunders/limit-handoff/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A free plugin for **Claude Code**, for people who use **more than one Claude account**.
+A free plugin for **Claude Code**, for people who use **more than one Claude account**. A usage limit belongs to the account, not to the chat, so a new chat on the same account is blocked too. limit-handoff lets you carry on with your other account instead.
 
 **The problem.** You are deep in a task and Claude Code stops: *"You've hit your session limit."* You switch to your other account and open a new chat. That chat knows nothing. You spend time, and the new account's tokens, explaining the goal, what is done, which files changed and where you stopped. Something always gets missed.
 
-**What limit-handoff does.** The moment the limit hits, it saves your place in your project folder and copies a short message to your clipboard. On the other account you paste that message into a new chat. Claude reads the saved notes and picks up at the exact next step. No re-explaining, no lost context, no tokens spent on catching up.
+**What limit-handoff does.** When the limit hits, it saves your place in your project folder and copies a short message to your clipboard. On the other account you paste that message into a new chat in the same project folder. Claude reads the saved notes and picks up at the next step, so you do not have to explain the task again.
 
-![Real output of limit-handoff simulate: a cut-off note in HANDOFF.md and a paste prompt that names the next step](docs/demo.svg)
+![Output of limit-handoff simulate (folder path shortened): a cut-off note in HANDOFF.md and a paste prompt that names the next step](docs/demo.svg)
+
+**Words used below.** A *hook* is a small program Claude Code runs at set moments, such as when a chat stops. The *transcript* is the log of each chat that Claude Code keeps on your disk. The *cut-off note* (or block) is the note limit-handoff adds to `HANDOFF.md`. "The kit" means limit-handoff itself.
 
 ---
 
@@ -28,21 +30,22 @@ claude --version
 jq --version
 ```
 
-- `claude` must be version **2.1.78 or newer**. If it is older, update Claude Code.
-- If `jq` is "not found", install it. On a Mac: `brew install jq`. On Linux: `sudo apt install jq` (or your system's package manager).
+- `claude` must be version **2.1.78 or newer**. If it is older, run `claude update`.
+- limit-handoff needs `jq`. If it is "not found", install it. On a Mac: `brew install jq`. On Linux: `sudo apt install jq` (or your system's package manager).
+- On Linux, the clipboard copy needs `wl-copy` (Wayland) or `xclip` or `xsel` (X11). Without one, the message is still saved in a file.
 - It works on **macOS and Linux**. Windows is not supported yet.
 
-**2. Install the plugin:**
+**2. Install the plugin.** In Terminal:
 
 ```bash
 claude plugin install limit-handoff --marketplace nicholas-a-saunders/limit-handoff
 ```
 
-You should see `Successfully installed plugin: limit-handoff@limit-handoff`.
+You should see a line like `✔ Successfully installed plugin: limit-handoff@limit-handoff (scope: user)`.
 
-**3. Restart Claude Code.** Close it and open it again, so it loads the plugin.
+**3. Restart Claude Code.** Quit it (type `/exit`, or close the app) and open it again, so it loads the plugin.
 
-That is it. There is nothing to set up. The plugin lives on your computer, not in your Claude account, so it keeps working on **every account** you sign in with.
+That is it. There are no settings to fill in. The plugin lives on your computer, not in your Claude account, so on this computer it works for **every account** you sign in with.
 
 ---
 
@@ -54,19 +57,19 @@ When a limit hits, you type no command. The plugin does its part by itself. You 
 
 **2. Switch to your other account.** In Claude Code, type `/login` and sign in with account B. (In Terminal you can also run `claude auth login`.)
 
-**3. Open a new chat in the same project folder** and **paste** (Cmd+V on a Mac, Ctrl+Shift+V in most Linux terminals). It must be the same folder, with the same files, because the notes are saved there. The message looks like this:
+**3. Open a new chat in the same project folder** and **paste** (Cmd+V on a Mac, Ctrl+Shift+V in most Linux terminals). It must be the same folder, with the same files, because the notes are saved there. (In Terminal: `cd` into the folder and run `claude`. In the desktop app: pick the same folder.) The message looks like this, with your own folder path:
 
-> Continue my task in ~/code/store. My last chat stopped (usage limit reached — 5-hour limit, resets 15:41). First read ~/code/store/HANDOFF.md fully — it has the goal, what is done, decisions, and the exact next steps. Then read …/recovered-….md for the last messages before the cut-off. Check the files for any half-finished step, then start with: Add email and password validation. …
+> Continue my task in ~/code/store. My last chat stopped (usage limit reached — 5-hour limit, resets Sun 01 Nov 15:41 GMT). First read ~/code/store/HANDOFF.md fully — it has the goal, what is done, decisions, and the exact next steps. Then read …/recovered-….md for the last messages before the cut-off. Check the files for any half-finished step, then start with: Add email and password validation. …
 
-**4. Claude carries on.** It reads the saved notes, checks for a half-finished step, and continues from the next step. Once it has picked up the work, it marks the handoff as done by itself (`limit-handoff resolve`), because the plugin asks it to. That stops the reminder. You do not need to do this.
+**4. Claude carries on.** It reads the saved notes, checks for a half-finished step, and continues from the next step. Until the handoff is marked as done, the plugin reminds Claude on each message to mark it (`limit-handoff resolve`) once it has checked the work. Claude usually does this by itself. If the reminder is still there after the work is picked up, tell Claude: *"The handoff is done. Resolve it."*
 
-**If the clipboard is empty or was overwritten:** type *"carry on"* in the new chat instead. The plugin tells a new chat in that folder about the handoff by itself. The same message is also saved in the file `PASTE-PROMPT.txt` in your project folder.
+**Paste, or type "carry on"?** Paste the message: it is the clearest start. If you cannot (the clipboard was overwritten), type *"carry on"* in the new chat instead. The plugin tells a new chat in that folder about the handoff by itself. The same message is also saved in the file `PASTE-PROMPT.txt` in your project folder.
 
-**Moving to the other account before the limit?** This part is not automatic, because no limit has hit yet. Say *"handoff"* in the chat. Claude saves the task and shows the paste message in the chat. The full command is `/limit-handoff:handoff`: Claude Code puts the plugin's name in front of every plugin command.
+**Moving to the other account before the limit?** This part is not automatic, because no limit has hit yet. Say *"handoff"* in the chat; Claude usually picks the plugin's handoff skill from that word. To be sure, type `/limit-handoff:handoff` (Claude Code puts the plugin's name in front of every plugin command). Claude saves the task and shows the paste message in the chat.
 
 ---
 
-## Try it first (2 minutes, nothing real is touched)
+## Try it first (2 minutes, only test files are written)
 
 See what a handoff looks like before you need one. In Terminal:
 
@@ -76,7 +79,7 @@ mkdir -p ~/limit-handoff-test && cd ~/limit-handoff-test && claude
 
 In that chat, ask Claude: *Run `limit-handoff simulate --dir .`*
 
-This fakes a limit on a made-up chat. Then open the `limit-handoff-test` folder and look at `HANDOFF.md` and `PASTE-PROMPT.txt`. Next, start a **new** chat in the same folder and say "hi": Claude tells you there is an unfinished handoff and names the next step. Delete the folder when you are done.
+This fakes a limit on a made-up chat. It writes only to the test folder and to limit-handoff's own state folder (a copy of the sample chat and a log line). Then open the `limit-handoff-test` folder and look at `HANDOFF.md` and `PASTE-PROMPT.txt`. Next, start a **new** chat in the same folder and type "carry on": Claude tells you there is an unfinished handoff and names the next step. Delete the folder when you are done.
 
 ---
 
@@ -90,17 +93,17 @@ claude plugin uninstall limit-handoff@limit-handoff
 claude plugin marketplace remove limit-handoff
 ```
 
-Your project files stay as they are. Delete `HANDOFF.md`, `PASTE-PROMPT.txt` and the `.handoff/` folder yourself if you no longer want them.
+Your project files stay as they are. If you no longer want them, delete `PASTE-PROMPT.txt` and the `.handoff/` folder, and remove the "Session cut off" notes from `HANDOFF.md`. Keep `HANDOFF.md` itself if it holds your own notes. Claude Code deletes the plugin's data folder (its log) when you uninstall it. It may keep an unused copy of the plugin's files in its plugin cache; that copy is not run.
 
 ---
 
 ## What it saves, and where
 
-Everything stays in your project folder, on your computer. Nothing is sent anywhere.
+Your notes stay in your project folder, on your computer. A small log and some markers go to a state folder (see [Files it writes](#files-it-writes)). Nothing is sent anywhere.
 
 | File | What is in it |
 |---|---|
-| `HANDOFF.md` | The goal, what is done and the next steps, plus a "Session cut off" note with the time and the reason. If you already keep a `HANDOFF.md`, only the note is added. If you do not, one is made from the chat. |
+| `HANDOFF.md` | The goal, what is done and the next steps, plus a "Session cut off" note with the time and the reason. If you already keep a `HANDOFF.md`, only the note is added. If you do not, one is made from the chat: its goal is the first request in the part of the chat that is read (token-shaped strings hidden), or a note that the goal was not found. Your recent messages are not copied into it. |
 | `.handoff/recovered-….md` | Your last messages, the task list, the files that were edited, the last commands, the git state and Claude's last reply. |
 | `PASTE-PROMPT.txt` | The short message to paste into the new chat. It is also copied to your clipboard. |
 
@@ -114,7 +117,7 @@ The `.handoff/` folder is kept out of git automatically. Read [Safety and privac
 
 **Does it work when I switch machines too?** Yes, if both machines have the same project folder (for example through git or a sync service) and the plugin is installed on both.
 
-**Does it use tokens?** Almost none. The plugin adds about 70 tokens to each session (the description of its `/limit-handoff:handoff` command). The new chat reads a short summary instead of you retyping the history.
+**Does it use tokens?** Very few. The plugin adds about 70 tokens to each session (the description of its `/limit-handoff:handoff` command), plus a one-line reminder about `HANDOFF.md` on your first message. While a cut-off is open, the reminder is a few lines on each message. The new chat reads a short summary instead of you retyping the history.
 
 **Why not wait for the limit to reset?** Claude Code has a built-in setting, "Continue automatically at usage limit" (`autoContinueAtUsageLimit`). It waits in the **same open chat on the same account** and goes on when the limit resets. Use it if you can wait. limit-handoff is for when you cannot:
 
@@ -123,7 +126,7 @@ The `.handoff/` folder is kept out of git automatically. Read [Safety and privac
 | Carry on **now** on your **other account** | no | yes |
 | Carry on on another machine | no | yes |
 | A **weekly** limit (reset is days away) | no | yes |
-| The chat was closed, or the terminal was killed | no | yes (the next chat catches up) |
+| The chat stopped on a limit, but was closed before the plugin ran | no | yes (the next chat catches up) |
 | A chat that ended on "Prompt is too long" | no | yes (the next chat catches up) |
 | Same chat, same account, and you can wait | yes | also writes a handoff (harmless) |
 
@@ -179,13 +182,13 @@ The four hooks:
 | Hook | When | What it does |
 |---|---|---|
 | `StopFailure` | A chat stops on a limit error. | The steps above. Repeat events for the same chat within 120 s are ignored. |
-| `SessionStart` | A chat starts or resumes. | **Catch-up:** if a recent chat in this project ended on a limit (or on "Prompt is too long") with no handoff, writes it now. Then, if `HANDOFF.md` has an unresolved cut-off, tells Claude to read it and names the first next step. |
-| `UserPromptSubmit` | You send a message. | A short reminder to read `HANDOFF.md`: once per session, then when the file is stale. |
+| `SessionStart` | A chat starts, resumes, is cleared or is compacted. | **Catch-up:** if a recent chat in this project ended on a limit (or on "Prompt is too long") with no handoff, writes it now. Then, if `HANDOFF.md` has an unresolved cut-off, tells Claude to read it and names the first next step. |
+| `UserPromptSubmit` | You send a message. | While a cut-off is open: the cut-off message (read the notes, then `limit-handoff resolve`) on every message. Otherwise a short reminder to read `HANDOFF.md`: once per session, then when the file is stale. |
 | `PreCompact` | Before Claude Code compacts a long chat. | Saves a snapshot to `.handoff/recovered-<time>-<session>-precompact.md`. |
 
 Every hook always exits 0 and never blocks Claude Code. Timeouts: StopFailure 30 s, SessionStart 20 s, PreCompact 30 s, UserPromptSubmit 5 s.
 
-**The cut-off block** sits between two marker comments in `HANDOFF.md`. It names the reason ("usage limit reached — 5-hour limit, resets Sun 01 Nov 15:41 GMT"), the time of the cut-off and the recovered file. Your own text is never changed. Each chat gets its own block. While a block is unresolved, the `SessionStart` and `UserPromptSubmit` hooks tell Claude to run `limit-handoff resolve` once it has picked up the work, so Claude normally marks the block as done itself. The block stays as history. You can also run it yourself:
+**The cut-off block** sits between two marker comments in `HANDOFF.md`. It names the reason ("usage limit reached — 5-hour limit, resets Sun 01 Nov 15:41 GMT"), the time of the cut-off and the recovered file. Your own text is never changed. Each chat gets its own block. While a block is unresolved, the `SessionStart` and `UserPromptSubmit` hooks tell Claude to run `limit-handoff resolve` once it has picked up the work, so Claude usually marks the block as done itself. The block stays as history, and its first line changes from "⚠️ **Session cut off**" to "✅ **Session cut off (resolved)**". To mark it yourself, ask Claude to run one of these (with the plugin, `limit-handoff` is on Claude's command path, not in your own Terminal; see [Command line](#command-line)):
 
 ```bash
 limit-handoff resolve                      # all unresolved blocks
@@ -202,11 +205,11 @@ limit-handoff resolve --session <id>       # one chat, when several were cut off
 
 **What it sends:** nothing. No network calls, no telemetry.
 
-**What it runs:** nothing it reads. Transcript text, `HANDOFF.md` and config files are treated as plain text. Clipboard and notification tools are the standard ones (`pbcopy`, `wl-copy`, `xclip`, `xsel`, `clip.exe`, `osascript`, `notify-send`, `terminal-notifier`).
+**What it runs:** nothing it reads. Transcript text, `HANDOFF.md` and config files are treated as plain text. Clipboard and notification tools are the standard ones (`pbcopy`, `wl-copy`, `xclip`, `xsel`, `clip.exe` (under WSL), `osascript`, `notify-send`, `terminal-notifier`).
 
 **Cloned repositories cannot steer it.** A repository you clone may ship its own `.claude/limit-handoff.conf`, but these keys are read only from the environment or your user config, never from the project file: `LIMIT_HANDOFF_FILE`, `_PROMPT_FILE`, `_RECOVER_DIR`, `_TAIL_LINES`, `_KEEP`, `_FOLLOW_LINKS`, `_CLIPBOARD`, `_NOTIFY`, `_STATE_DIR`. A `HANDOFF.md`, `PASTE-PROMPT.txt`, `LATEST.md` or recovered file that is a symbolic link out of the project, or into `.git` or `.claude`, is not read or written. If you keep `HANDOFF.md` as a link on purpose (for example into a dotfiles folder), set `LIMIT_HANDOFF_FOLLOW_LINKS=1` in your own config.
 
-**Less private text on disk.** Recovered text has control characters, direction marks and backticks removed from paths and commands, and token-shaped strings (API keys, GitHub and Slack tokens, AWS key ids, long hex or base64 runs) are replaced with `[redacted]`. A `HANDOFF.md` that the kit creates does not copy your recent messages; they stay in the recovered file.
+**Less private text on disk.** Recovered text has control characters, direction marks and backticks removed from paths and commands, and token-shaped strings (API keys, GitHub and Slack tokens, AWS key ids, long hex or base64 runs) are replaced with `[redacted]`. A `HANDOFF.md` that the kit creates does not copy your recent messages; they stay in the recovered file. Its goal is the first request in the part of the chat that is read, with token-shaped strings hidden.
 
 **Keep chat text out of git.** `.handoff/` gets its own `.gitignore` (`*`). `PASTE-PROMPT.txt` and an auto-created `HANDOFF.md` are made from chat text, so check them before you commit them. Many people add these lines to `.gitignore`:
 
@@ -253,7 +256,7 @@ Keys marked **user only** are never read from the project file.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `LIMIT_HANDOFF_ERRORS` | `rate_limit billing_error unknown overloaded server_error` | Stop codes that make a handoff, inside the hook. The plugin's matcher only starts the hook for `rate_limit`, `billing_error` and `unknown`. |
+| `LIMIT_HANDOFF_ERRORS` | `rate_limit billing_error unknown overloaded server_error` | Stop codes that make a handoff, inside the hook. The plugin's matcher only starts the hook for `rate_limit`, `billing_error` and `unknown`, so with the plugin, codes added here have no effect. With the settings install, pass the codes to `install --errors` too. `overloaded` and `server_error` are usually short; waiting is often better than switching accounts. |
 | `LIMIT_HANDOFF_CREATE_IF_MISSING` | `1` | Create `HANDOFF.md` from the chat when it is missing. |
 | `LIMIT_HANDOFF_PROMPTS` | `5` | How many of your last messages go into the recovered file. |
 | `LIMIT_HANDOFF_GIT` | `1` | Add the git section to recovered files. |
@@ -278,6 +281,8 @@ File names must stay inside the project and may not point into `.git` or `.claud
 
 ## Command line
 
+With the plugin, `limit-handoff` is on Claude's command path, not in your own Terminal. Ask Claude to run these commands. In Terminal, use the full path: `~/.claude/plugins/cache/limit-handoff/limit-handoff/<version>/bin/limit-handoff` (or `bin/limit-handoff` in a clone of this repository).
+
 ```
 limit-handoff install   --settings FILE [--errors LIST] [--events LIST] [--dry-run]
 limit-handoff uninstall --settings FILE [--dry-run]
@@ -294,11 +299,11 @@ limit-handoff --help | --version
 |---|---|
 | `install` / `uninstall` | Add or remove the kit's hooks in a settings file you name. Backup first, `--dry-run` writes nothing, your other hooks stay. `--errors` sets the StopFailure codes (default `rate_limit\|billing_error\|unknown`); `--events` picks hooks from `stop-failure,prompt-submit,session-start,pre-compact` (kit hooks not listed are removed, and the command says which). |
 | `status` | The handoff file's age, unresolved cut-offs, recovered files, installed kit hooks, last log lines. |
-| `prompt` | A manual handoff now: builds and prints the paste prompt and copies it (unless `--no-copy`). Use it before you end a chat on purpose. |
+| `prompt` | A manual handoff now: builds and prints the paste prompt and copies it (unless `--no-copy`). It also replaces `PASTE-PROMPT.txt` and writes a small `recovered-…-manual.md`. When `HANDOFF.md` has open cut-offs, the prompt points to them. Use it before you end a chat on purpose. |
 | `recover` | Build a recovered-context file from any transcript (`--stdout` prints it). |
 | `resolve` | Mark cut-off blocks as resolved. The history stays. |
-| `simulate` | Run the real hook on a fake stop (see [Try it first](#try-it-first-2-minutes-nothing-real-is-touched)). |
-| `doctor` | Check bash, jq, clipboard, notifications, the state folder, the Claude Code version, and hooks registered twice. Read only. |
+| `simulate` | Run the real hook on a fake stop (see [Try it first](#try-it-first-2-minutes-only-test-files-are-written)). |
+| `doctor` | Check bash, jq, clipboard, notifications, the state folder, the Claude Code version, and hooks registered twice (in `--settings FILE`, else your Claude Code settings file: in `$CLAUDE_CONFIG_DIR` when that is set, else `~/.claude`). Read only. |
 
 `--dir` is the project folder; without it the kit uses `CLAUDE_PROJECT_DIR`, then the current folder. Exit codes: `0` ok, `1` something failed, `2` wrong usage (or a settings file that is not valid JSON).
 
@@ -329,7 +334,10 @@ The plugin also adds a `/limit-handoff:handoff` skill: it saves the full task st
 - **Claude Code must run the StopFailure hook.** It does not always:
   - In headless mode (`claude -p`), external programs started by a StopFailure hook can be killed early ([anthropics/claude-code#101420](https://github.com/anthropics/claude-code/issues/101420)). The next chat's catch-up then writes the handoff.
   - "Prompt is too long" fires no StopFailure ([#104951](https://github.com/anthropics/claude-code/issues/104951)). Catch-up covers it at the next start.
-  - Background subagents can fire StopFailure on the parent session ([#91419](https://github.com/anthropics/claude-code/issues/91419)). The kit ignores subagent lines and repeat events within 120 s.
+  - Background subagents can fire StopFailure on the parent session ([#91419](https://github.com/anthropics/claude-code/issues/91419)). The kit ignores repeat events for the same chat within 120 s. The limit details and the catch-up use only the main chat's lines from the transcript. A subagent's failure can still create a cut-off note; resolve it if the main chat was fine.
+- **A real second limit in the same chat within 120 s is ignored too**, as a repeat. The first note already covers that chat.
+- **A rate limit with no limit details** (no 5-hour or weekly limit in the transcript) is shown as "rate or usage limit reached", because the two cannot be told apart. A short rate limit often clears in a minute; check before you switch accounts.
+- **Claude marks the handoff as done only when it judges the work picked up.** It may leave it open on purpose when a half-finished step cannot be checked. Tell Claude when it is done.
 - **Limit type and reset time come from the transcript**, because the hook input does not carry them ([#97975](https://github.com/anthropics/claude-code/issues/97975), [#98012](https://github.com/anthropics/claude-code/issues/98012)). Treat the reset time as a guide.
 - **The transcript format is internal to Claude Code** and can change. Lines the parser does not understand are skipped, so recovery degrades rather than fails.
 - **Only the end of a long chat is read.** The first request can fall outside it; the created `HANDOFF.md` then says the goal was not found.
@@ -357,7 +365,7 @@ The plugin also adds a `/limit-handoff:handoff` skill: it saves the full task st
 /bin/bash tests/run.sh
 ```
 
-490 tests, pure bash and jq, run on macOS (`/bin/bash` 3.2) and Ubuntu in CI. Each test gets a temp HOME and state folder, and clipboard, notification and `claude` are replaced by shims, so a run never touches your real setup. ShellCheck must pass at warning level:
+501 tests, pure bash and jq, run on macOS (`/bin/bash` 3.2) and Ubuntu in CI. Each test gets a temp HOME and state folder, and clipboard, notification and `claude` are replaced by shims, so a run never touches your real setup. ShellCheck must pass at warning level:
 
 ```bash
 shellcheck --shell=bash --severity=warning --external-sources bin/limit-handoff hooks/*.sh lib/common.sh

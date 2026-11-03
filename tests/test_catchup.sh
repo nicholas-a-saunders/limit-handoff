@@ -84,7 +84,7 @@ test_limit_at_end_of_chat_gets_a_handoff_on_next_start() {
   cu_start startup "$(cu_dir)/curnt-01.jsonl"
   assert_exit 0 "$TL_RC"
   assert_contains "$(printf '%s\n' "$TL_OUT" | head -n 1)" \
-    "limit-handoff wrote a handoff for the previous chat (catch-01). It hit a usage limit and had no handoff." \
+    "limit-handoff wrote a handoff for the previous chat (catch-01). It hit a rate or usage limit and had no handoff." \
     "the extra line must come first"
   assert_contains "$TL_OUT" "unresolved cut-off from a previous session" "the normal text follows"
   assert_file_exists "$p/HANDOFF.md"

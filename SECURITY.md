@@ -25,7 +25,7 @@ Only the latest release gets security fixes.
 The kit promises the following. A way to break any of these is a security problem:
 
 - Text from a transcript, `HANDOFF.md`, a config file, git output, or a hook payload is never run as code.
-- A project's own files (`.claude/limit-handoff.conf`, `HANDOFF.md`, a cut-off block) cannot choose a program to run, cannot make the kit write outside the project or its state folder, and cannot inject arbitrary text into Claude's context through the kit's hook output.
+- A project's own files (`.claude/limit-handoff.conf`, `HANDOFF.md`, a cut-off block) cannot choose a program to run, cannot make the kit write outside the project or its state folder, and cannot inject arbitrary text into Claude's context through the kit's hook output. The one exception is on purpose: the "first next step" line from `HANDOFF.md` is shown to Claude (see Out of scope).
 - The kit makes no network calls and sends nothing anywhere.
 - `install` and `uninstall` never remove settings or hooks they did not add, and always back up a settings file before changing it.
 - Hooks always exit 0 and never block Claude Code.

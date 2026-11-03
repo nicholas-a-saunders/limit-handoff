@@ -29,7 +29,7 @@ test_attack_spec_resolve_keeps_block_history() {
   assert_file_contains "$p/HANDOFF.md" 'session="rs-one" at="' "the block must still be there"
   assert_file_contains "$p/HANDOFF.md" 'status="resolved"' "its status must now be resolved"
   assert_file_not_contains "$p/HANDOFF.md" 'status="unresolved"' "no unresolved status may remain"
-  assert_file_contains "$p/HANDOFF.md" "(usage limit reached)" "the block text is kept"
+  assert_file_contains "$p/HANDOFF.md" "(rate or usage limit reached)" "the block text is kept"
 }
 
 # SPEC (bin/limit-handoff prompt): builds the paste prompt now, prints it, copies it unless --no-copy,

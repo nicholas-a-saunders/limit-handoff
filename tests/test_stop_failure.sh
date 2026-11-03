@@ -27,7 +27,7 @@ test_appends_block_to_existing_handoff() {
   assert_file_contains "$p/HANDOFF.md" "# My handoff" "user content must stay"
   assert_count "$p/HANDOFF.md" 'session="sess-one"' 1 "one cut-off block"
   assert_file_contains "$p/HANDOFF.md" 'status="unresolved"'
-  assert_file_contains "$p/HANDOFF.md" "(usage limit reached)"
+  assert_file_contains "$p/HANDOFF.md" "(rate or usage limit reached)"
   assert_file_contains "$p/HANDOFF.md" "Recovered context: \`.handoff/recovered-"
   assert_file_exists "$(recovered_for "$p" "sess-one")"
 }
@@ -64,7 +64,7 @@ test_missing_handoff_is_created_from_transcript() {
   assert_exit 0 "$TL_RC"
   assert_file_exists "$p/HANDOFF.md"
   assert_file_contains "$p/HANDOFF.md" "Build the login page for the demo app" "goal comes from the first prompt"
-  assert_file_contains "$p/HANDOFF.md" "cut off (usage limit reached)"
+  assert_file_contains "$p/HANDOFF.md" "cut off (rate or usage limit reached)"
   assert_file_contains "$p/HANDOFF.md" "verify before trusting"
   assert_file_contains "$p/HANDOFF.md" "- Done: Make login form"
   assert_file_contains "$p/HANDOFF.md" "- Changed file: \`/work/demo/src/login.html\`"
@@ -128,7 +128,7 @@ test_notifier_shim_is_called() {
   run_stop "notify-sess" "$(tl_fixture basic.jsonl)" "$p" "rate_limit"
   assert_exit 0 "$TL_RC"
   assert_file_exists "$TEST_OUT/notify.txt" "notifier shim was not called"
-  assert_file_contains "$TEST_OUT/notify.txt" "Claude Code stopped: usage limit reached"
+  assert_file_contains "$TEST_OUT/notify.txt" "Claude Code stopped: rate or usage limit reached"
   assert_file_contains "$TEST_OUT/notify.txt" "saved to project/PASTE-PROMPT.txt" "the body names the project folder and the file (batch F #9/#18)"
 }
 
@@ -151,7 +151,7 @@ test_paste_prompt_has_path_next_step_and_recovered_file() {
   assert_file_contains "$p/PASTE-PROMPT.txt" "First read $p/HANDOFF.md fully" "absolute handoff path"
   assert_file_contains "$p/PASTE-PROMPT.txt" "Then read $rec" "absolute recovered path"
   assert_file_contains "$p/PASTE-PROMPT.txt" "start with: Finish the password check" "next step"
-  assert_file_contains "$p/PASTE-PROMPT.txt" "My last chat stopped (usage limit reached)."
+  assert_file_contains "$p/PASTE-PROMPT.txt" "My last chat stopped (rate or usage limit reached)."
   assert_file_not_contains "$p/PASTE-PROMPT.txt" "{{" "no placeholders left"
 }
 
