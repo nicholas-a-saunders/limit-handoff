@@ -2,6 +2,8 @@
 
 Where the [spec](SPEC.md) left room, or where it changed, this file records what was chosen and why. Entries are numbered and never renumbered, so code and tests can point to them ("DECISIONS.md #37").
 
+**About the labels.** Some entries, test names and test messages carry labels from the review rounds of the first build: "second review pass", "batch A" to "batch G", and finding ids such as F1, O1, V1 or D2. A label only groups changes that were made together. The review lists themselves are not part of this repository; each entry here says what changed and why, and each change has a test.
+
 ## Hook behaviour
 
 1. **No `trap 'exit 0' ERR`.** The spec asked for it. In bash, the ERR trap fires on any failing command, even a harmless one inside `$(...)`. It would stop the hook half way. Instead every hook body runs as `main || true` and the script ends with `exit 0`. Result: the hook always exits 0 and always finishes its steps.
@@ -18,7 +20,7 @@ Where the [spec](SPEC.md) left room, or where it changed, this file records what
 ## Cut-off block and HANDOFF.md
 
 11. **Same session, existing block.** The block is replaced in place (same position), with the new time. Blocks from other sessions are not moved or changed.
-12. **Unclosed block.** If a block has no end marker, its text is kept and a new block is added after it. Nothing is dropped. (Fixer pass: a block ends at its end marker. A new cut-off header or a markdown heading before that end marker means the block was never closed. See decision 74.)
+12. **Unclosed block.** If a block has no end marker, its text is kept and a new block is added after it. Nothing is dropped. (Second review pass: a block ends at its end marker. A new cut-off header or a markdown heading before that end marker means the block was never closed. See decision 74.)
 13. **Created HANDOFF.md** follows the global CLAUDE.md template and adds one section, "Last things you asked (recovered)". It also has a "Paste prompt" section that holds the same text as PASTE-PROMPT.txt.
 14. **Existing HANDOFF.md.** Only the cut-off block changes. The user's own paste-prompt section is not rewritten.
 15. **Next step.** For an existing file, the first list item under "## Next steps" (rule for finished items: see decision 70). For a created file, the first in-progress task, then the first pending task. If neither exists, the spec's text: "Re-read the last prompts below and confirm the goal". If there is no file and no create, "the first unfinished next step". Changed by decision 171: when there is no next step the paste prompt says so (it does not say "the first unfinished next step"), and the paste text is built from parts (see `hk_paste_text`).
@@ -40,7 +42,7 @@ Where the [spec](SPEC.md) left room, or where it changed, this file records what
 
 ## Installer
 
-28. **Kit entry detection.** A hook command is a kit entry when it ends with `/hooks/<kit script>.sh` (optional quote, optional marker) AND (it carries the marker `# limit-handoff`, OR its path has a folder named exactly `limit-handoff`). The marker is added to every command the installer writes. It is a shell comment, so `sh` ignores it, and it lets a moved kit still be recognised. (Fixer pass: the old rule matched any path containing "handoff", so a user's own `/work/handoff/hooks/session-start.sh` was deleted. Changed to the rule above. Tests: `test_attack_spec_*_keeps_unrelated_hook_with_handoff_in_path`, `test_uninstall_keeps_a_user_hook_that_only_looks_like_the_kit`.)
+28. **Kit entry detection.** A hook command is a kit entry when it ends with `/hooks/<kit script>.sh` (optional quote, optional marker) AND (it carries the marker `# limit-handoff`, OR its path has a folder named exactly `limit-handoff`). The marker is added to every command the installer writes. It is a shell comment, so `sh` ignores it, and it lets a moved kit still be recognised. (Second review pass: the old rule matched any path containing "handoff", so a user's own `/work/handoff/hooks/session-start.sh` was deleted. Changed to the rule above. Tests: `test_attack_spec_*_keeps_unrelated_hook_with_handoff_in_path`, `test_uninstall_keeps_a_user_hook_that_only_looks_like_the_kit`.)
 29. **Shell quoting.** Hook paths are written in single quotes, so folders with spaces work. A test runs the installed command through `sh -c` from a folder with a space in its name.
 30. **Events not selected.** Running install with `--events` removes kit entries for the events left out. The file then matches the choice exactly.
 31. **No change, no backup.** When the result equals the current file, nothing is written and no backup is made.
@@ -51,7 +53,7 @@ Where the [spec](SPEC.md) left room, or where it changed, this file records what
 
 ## Configuration and safety
 
-36. **State folder default.** (Fixer pass: now follows the SPEC table exactly.) `$CLAUDE_PLUGIN_DATA`, else `$HOME/.local/state/limit-handoff`. The earlier build also looked at `$XDG_STATE_HOME`; that was dropped because the SPEC does not list it. A leading `~` in `LIMIT_HANDOFF_STATE_DIR` is expanded to `$HOME`. Test: `test_attack_spec_default_state_dir_is_home_local_state`. Still open: the user config file is read from `${XDG_CONFIG_HOME:-$HOME/.config}/limit-handoff/config`. The SPEC names only `~/.config`; the XDG part is kept because the config tests set `XDG_CONFIG_HOME`.
+36. **State folder default.** (Second review pass: now follows the SPEC table exactly.) `$CLAUDE_PLUGIN_DATA`, else `$HOME/.local/state/limit-handoff`. The earlier build also looked at `$XDG_STATE_HOME`; that was dropped because the SPEC does not list it. A leading `~` in `LIMIT_HANDOFF_STATE_DIR` is expanded to `$HOME`. Test: `test_attack_spec_default_state_dir_is_home_local_state`. Still open: the user config file is read from `${XDG_CONFIG_HOME:-$HOME/.config}/limit-handoff/config`. The SPEC names only `~/.config`; the XDG part is kept because the config tests set `XDG_CONFIG_HOME`.
 37. **Trusted keys.** `LIMIT_HANDOFF_CLIPBOARD`, `LIMIT_HANDOFF_NOTIFY` and `LIMIT_HANDOFF_STATE_DIR` are read from the environment and the user file only. A project's own `.claude/limit-handoff.conf` cannot pick the program that gets the paste prompt. (Tested by `test_trusted_keys_ignore_project_file`.) **Spec conflict (decision for the spec owner):** SPEC's literal order (env > project file > user file > default) would let the project file pick the clipboard program. The security rule wins. The adversarial test `test_attack_spec_project_config_can_choose_clipboard_command` was changed to assert the rule (the program does not run; the prompt is still saved). See decision 69. *(Superseded: the user-only list grew to nine keys, see 167 and 188.)*
 38. **Config syntax.** `KEY=VALUE`, with optional spaces around `=` and optional matching quotes. Only `LIMIT_HANDOFF_*` keys count. Values are never executed. (Tested, including `$(touch ...)` in a value.)
 39. **File name keys** (`LIMIT_HANDOFF_FILE`, `..._PROMPT_FILE`, `..._RECOVER_DIR`) must be relative, with no `.` or `..` parts, and only letters, digits, `._-/` and spaces. A bad value is logged and the default is used. (Tested with `../../etc/passwd`.)
@@ -86,16 +88,16 @@ Where the [spec](SPEC.md) left room, or where it changed, this file records what
 
 ## Adversarial test notes (added by the adversarial tester)
 
-Files: `tests/test_attack_adversarial_{transcript,cutoff,hooks,settings,portability}.sh`. The runner only picks up `tests/test_*.sh`, so the `attack_adversarial_` prefix sits after `test_`. Each failing test is a bug for the fixer. No source file or existing test was changed.
+Files: `tests/test_attack_adversarial_{transcript,cutoff,hooks,settings,portability}.sh`. The runner only picks up `tests/test_*.sh`, so the `attack_adversarial_` prefix sits after `test_`. Each failing test marked a bug to fix. No source file or existing test was changed.
 
 59. **Severity.** Where the spec states a rule (for example "never fail on unknown lines", "blocks from other sessions stay", "merge without touching other keys or hooks", "never write outside the project dir"), a breach is **major**. Where the spec is silent (file mode, symlinks, look-alike hook paths, trailing slash in a file name, a project config aiming at `.claude/settings.json`, a FIFO transcript, markdown fences), the breach is **minor**, as the adversarial brief asked.
 60. **Simultaneous sessions.** The spec does not name concurrency. I read "different session -> two blocks" and "blocks from other sessions stay" as requiring two hooks running at the same moment to keep both blocks. A usage limit hits every open chat at once, so this case is realistic.
-61. **Unclosed block (decision 12 vs. the code).** Decision 12 says nothing is dropped. The tests hold the builder to that. Test: `test_unclosed_block_for_same_session_keeps_user_notes_and_other_blocks`.
+61. **Unclosed block (decision 12 vs. the code).** Decision 12 says nothing is dropped. The tests hold the code to that. Test: `test_unclosed_block_for_same_session_keeps_user_notes_and_other_blocks`.
 62. **Spec deviation, not tested.** SPEC asks for `trap 'exit 0' ERR`. The build uses `|| true` and `exit 0` instead (decision 1). The tests check the behaviour the trap was meant to give (the hooks always exit 0), not the trap itself.
 63. **Runner is not re-entrant.** `tests/run.sh` deletes and reuses `tests/.tmp`. Two runs at once (or a run whose pipe is closed early, such as `| head`) leave the other run with missing folders and random failures. Run it once at a time.
 64. **Other test files.** `tests/test_attack_spec_*.sh` were added by another worker while these tests were written. They are not part of this adversarial set and were not edited.
 
-## Fixer pass (decisions 65 to 82)
+## Second review pass (decisions 65 to 82)
 
 These record how the failing adversarial and spec tests were fixed. Where a test was changed instead of the source, the reason is given.
 
@@ -145,7 +147,7 @@ These record how the failing adversarial and spec tests were fixed. Where a test
 95. **The new tests were checked against the old bugs.** The old environment override and the old fallback to pbcopy were each put back in a temp copy. The new tests failed in each case (3 failures and 1 failure). The fixed copy passes all 7. Full suite after the changes: 258 passed, 0 failed.
 
 
-Note on the test runs: the concurrency tests are timing-based. Each one runs 10 or 15 rounds inside the suite. The first two full runs of the fixer pass failed (32, then 3 checks). The last three full runs, made after the final edits, all passed (251 of 251).
+Note on the test runs: the concurrency tests are timing-based. Each one runs 10 or 15 rounds inside the suite. The first two full runs of the second review pass failed (32, then 3 checks). The last three full runs, made after the final edits, all passed (251 of 251).
 
 ## Code review fixes (decisions 96 to 103)
 

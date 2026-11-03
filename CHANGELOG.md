@@ -5,25 +5,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-Fixes from a first-time-user test of the repository (install from GitHub, every command, edge cases, a real Claude Code session).
-
-### Changed
-
-- **Rate-limit wording.** A `rate_limit` stop with no limit details now says "rate or usage limit reached" (in `HANDOFF.md`, the paste prompt, the notification and the hook reminders). "Usage limit reached" is kept when the transcript or the last message names the limit (5-hour, weekly, session) or its reset time. A short API rate limit no longer reads like an account limit.
-- **`resolve` marks the visible line too.** The first line of a resolved block changes from "⚠️ **Session cut off**" to "✅ **Session cut off (resolved)**", so a person reading `HANDOFF.md` can see it. Text outside the blocks is not changed.
-- **Other open cut-offs in the paste prompt.** When `HANDOFF.md` has unresolved cut-offs from other chats, the paste prompt (from a stop, or from `limit-handoff prompt`) says so and asks the new chat to read the recovered file each one names.
-- **`CLAUDE_CONFIG_DIR`.** `doctor` and the `install` plugin check use `$CLAUDE_CONFIG_DIR/settings.json` when that is set (some people keep one config folder per account), else `~/.claude/settings.json`.
-
-### Added
-
-- **A log line for ignored keys.** When a project's `.claude/limit-handoff.conf` sets a key that is read only from the environment or your own config, the StopFailure hook logs which keys it ignored (names only, never values).
-
-### Documentation
-
-- README: why a second account is needed (the limit is per account); paste is the main way and "carry on" the fallback; Claude usually, not always, marks the handoff as done; `limit-handoff` runs inside a Claude chat, not in your own Terminal (full path given); "Remove it" no longer says to delete your own `HANDOFF.md`; the state folder, the created goal, the token cost and the subagent and debounce limits are described as they are.
-- SECURITY.md: the next-step line from `HANDOFF.md` is named as the one text a project file can show to Claude.
-
-## [1.0.0] - 2026-10-30
+## [1.0.0] - 2026-11-03
 
 First public release.
 
@@ -54,6 +36,18 @@ These came from a full code review before the first release. Each one has a regr
 - **CLI.** `simulate` uses a realistic sample chat with fresh times, so the demo shows a limit that resets in the future; `install`/`uninstall` say when jq is missing; `install` names hooks it removed and lists valid error codes; `simulate` checks only its own files; `resolve`, `status`, `doctor` and `prompt` give clear errors for bad input.
 - **Locking on new Linux.** Two chats that stop at the same moment no longer lose a cut-off block on Ubuntu 26.04, whose Rust `mkdir` is not atomic: the lock is now a file made with bash's noclobber option, and a lock left by a process that has ended is cleared.
 - **Portability.** Tests no longer use BSD-only `sed -i ''`, `stat -f` or `date -v`; leading-zero numbers in config work; ShellCheck (warning level) passes, with directives and `.shellcheckrc`; one version number, kept the same in `HK_VERSION` and `plugin.json` by a test.
+
+### Fixes from a first-time-user test
+
+These came from testing the repository the way a new user would, before the first release: install from GitHub, every command, edge cases, and a real Claude Code session. Each code change has a regression test.
+
+- **Rate-limit wording.** A `rate_limit` stop with no limit details now says "rate or usage limit reached" (in `HANDOFF.md`, the paste prompt, the notification and the hook reminders). "Usage limit reached" is kept when the transcript or the last message names the limit (5-hour, weekly, session) or its reset time. A short API rate limit no longer reads like an account limit.
+- **`resolve` marks the visible line too.** The first line of a resolved block changes from "⚠️ **Session cut off**" to "✅ **Session cut off (resolved)**", so a person reading `HANDOFF.md` can see it. Text outside the blocks is not changed.
+- **Other open cut-offs in the paste prompt.** When `HANDOFF.md` has unresolved cut-offs from other chats, the paste prompt (from a stop, or from `limit-handoff prompt`) says so and asks the new chat to read the recovered file each one names.
+- **`CLAUDE_CONFIG_DIR`.** `doctor` and the `install` plugin check use `$CLAUDE_CONFIG_DIR/settings.json` when that is set (some people keep one config folder per account), else `~/.claude/settings.json`.
+- **A log line for ignored keys.** When a project's `.claude/limit-handoff.conf` sets a key that is read only from the environment or your own config, the StopFailure hook logs which keys it ignored (names only, never values).
+- **README.** The pitch is about carrying on in a new chat, with a "What it does not do" line (no limit is changed or bypassed; use each account within Anthropic's terms); why a second account is needed (the limit is per account); paste is the main way and "carry on" the fallback; Claude usually, not always, marks the handoff as done; `limit-handoff` runs inside a Claude chat, not in your own Terminal (full path given); "Remove it" no longer says to delete your own `HANDOFF.md`; the state folder, the created goal, the token cost and the subagent and debounce limits are described as they are.
+- **SECURITY.md.** The next-step line from `HANDOFF.md` is named as the one text a project file can show to Claude.
 
 [Unreleased]: https://github.com/nicholas-a-saunders/limit-handoff/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/nicholas-a-saunders/limit-handoff/releases/tag/v1.0.0

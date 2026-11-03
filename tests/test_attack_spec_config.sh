@@ -44,7 +44,7 @@ test_attack_spec_tilde_in_state_dir_config_expands_to_home() {
 }
 
 # SPEC (Config table): the default state folder is "${CLAUDE_PLUGIN_DATA:-$HOME/.local/state/limit-handoff}".
-# The build used to honour XDG_STATE_HOME first. It now follows the spec (fixer pass, DECISIONS #36).
+# The build used to honour XDG_STATE_HOME first. It now follows the spec (second review pass, DECISIONS #36).
 # Severity: minor (docs/DECISIONS.md #36 records this, so the spec owner may want to amend the spec).
 test_attack_spec_default_state_dir_is_home_local_state() {
   unset LIMIT_HANDOFF_STATE_DIR CLAUDE_PLUGIN_DATA

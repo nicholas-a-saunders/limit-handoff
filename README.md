@@ -1,16 +1,18 @@
 # limit-handoff
 
-**Ran out of usage on one Claude account? Switch to your other account and carry on with the same task — without explaining it all again.**
+**When a Claude Code chat stops at a usage limit, carry on with the same task in a new chat — on your other Claude account, or on another machine — without explaining it all again.**
 
 [![CI](https://github.com/nicholas-a-saunders/limit-handoff/actions/workflows/ci.yml/badge.svg)](https://github.com/nicholas-a-saunders/limit-handoff/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/nicholas-a-saunders/limit-handoff)](https://github.com/nicholas-a-saunders/limit-handoff/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A free plugin for **Claude Code**, for people who use **more than one Claude account**. A usage limit belongs to the account, not to the chat, so a new chat on the same account is blocked too. limit-handoff lets you carry on with your other account instead.
+A free plugin for **Claude Code**. It is built mainly for people who use **more than one Claude account**, such as a work account and a personal one. A usage limit belongs to the account, not to the chat, so a new chat on the same account is blocked too. limit-handoff saves your place, so a chat on your other account can carry on.
 
 **The problem.** You are deep in a task and Claude Code stops: *"You've hit your session limit."* You switch to your other account and open a new chat. That chat knows nothing. You spend time, and the new account's tokens, explaining the goal, what is done, which files changed and where you stopped. Something always gets missed.
 
 **What limit-handoff does.** When the limit hits, it saves your place in your project folder and copies a short message to your clipboard. On the other account you paste that message into a new chat in the same project folder. Claude reads the saved notes and picks up at the next step, so you do not have to explain the task again.
+
+**What it does not do.** It does not change, share or get around any limit, and it never touches your accounts or logins. It only saves notes on your own disk. Use each of your accounts within [Anthropic's terms](https://www.anthropic.com/legal/consumer-terms).
 
 ![Output of limit-handoff simulate (folder path shortened): a cut-off note in HANDOFF.md and a paste prompt that names the next step](docs/demo.svg)
 
@@ -132,7 +134,7 @@ The `.handoff/` folder is kept out of git automatically. Read [Safety and privac
 
 You can use both.
 
-**Is it made by Anthropic?** No. It is an independent open-source project.
+**Is it made by Anthropic?** No. It is an independent open-source project. It does not change how Claude's usage limits work; each account keeps its own limits and terms.
 
 ---
 
@@ -182,7 +184,7 @@ The four hooks:
 | Hook | When | What it does |
 |---|---|---|
 | `StopFailure` | A chat stops on a limit error. | The steps above. Repeat events for the same chat within 120 s are ignored. |
-| `SessionStart` | A chat starts, resumes, is cleared or is compacted. | **Catch-up:** if a recent chat in this project ended on a limit (or on "Prompt is too long") with no handoff, writes it now. Then, if `HANDOFF.md` has an unresolved cut-off, tells Claude to read it and names the first next step. |
+| `SessionStart` | A chat starts, resumes, is cleared, is compacted or is forked. | **Catch-up:** if a recent chat in this project ended on a limit (or on "Prompt is too long") with no handoff, writes it now. Then, if `HANDOFF.md` has an unresolved cut-off, tells Claude to read it and names the first next step. |
 | `UserPromptSubmit` | You send a message. | While a cut-off is open: the cut-off message (read the notes, then `limit-handoff resolve`) on every message. Otherwise a short reminder to read `HANDOFF.md`: once per session, then when the file is stale. |
 | `PreCompact` | Before Claude Code compacts a long chat. | Saves a snapshot to `.handoff/recovered-<time>-<session>-precompact.md`. |
 
