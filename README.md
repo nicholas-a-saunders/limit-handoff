@@ -48,23 +48,21 @@ That is it. There is nothing to set up. The plugin lives on your computer, not i
 
 ## Use it: switch accounts and carry on
 
-You do not have to do anything until a limit hits. Then:
+When a limit hits, you type no command. The plugin does its part by itself. You only switch accounts, open a new chat and paste.
 
-**1. The limit hits.** Claude Code stops on account A. limit-handoff saves your place by itself, copies a short message to your clipboard, and shows a notification.
+**1. The limit hits.** Claude Code stops on account A. limit-handoff saves your place by itself, copies a short message to your clipboard (with your system's copy command, such as `pbcopy` on a Mac), and shows a desktop notification. The stopped chat shows nothing from the plugin, because Claude Code does not display what this hook prints.
 
 **2. Switch to your other account.** In Claude Code, type `/login` and sign in with account B. (In Terminal you can also run `claude auth login`.)
 
-**3. Open a new chat in the same project folder** and **paste** (Cmd+V on a Mac, Ctrl+Shift+V in most Linux terminals). The message looks like this:
+**3. Open a new chat in the same project folder** and **paste** (Cmd+V on a Mac, Ctrl+Shift+V in most Linux terminals). It must be the same folder, with the same files, because the notes are saved there. The message looks like this:
 
 > Continue my task in ~/code/store. My last chat stopped (usage limit reached — 5-hour limit, resets 15:41). First read ~/code/store/HANDOFF.md fully — it has the goal, what is done, decisions, and the exact next steps. Then read …/recovered-….md for the last messages before the cut-off. Check the files for any half-finished step, then start with: Add email and password validation. …
 
-**4. Claude carries on.** It reads the saved notes, checks for a half-finished step, and continues from the next step.
+**4. Claude carries on.** It reads the saved notes, checks for a half-finished step, and continues from the next step. Once it has picked up the work, it marks the handoff as done by itself (`limit-handoff resolve`), because the plugin asks it to. That stops the reminder. You do not need to do this.
 
-**5. When it has picked up the work**, tell Claude: *"Run `limit-handoff resolve`."* This marks the cut-off as done. (Optional. It just stops the reminder.)
+**If the clipboard is empty or was overwritten:** type *"carry on"* in the new chat instead. The plugin tells a new chat in that folder about the handoff by itself. The same message is also saved in the file `PASTE-PROMPT.txt` in your project folder.
 
-**If the clipboard is empty:** the same message is saved in the file `PASTE-PROMPT.txt` in your project folder. Open it and copy it.
-
-**Moving to the other account before the limit?** In a chat, type `/limit-handoff:handoff`. Claude saves the task and gives you the paste message straight away.
+**Moving to the other account before the limit?** This part is not automatic, because no limit has hit yet. Say *"handoff"* in the chat. Claude saves the task and shows the paste message in the chat. The full command is `/limit-handoff:handoff`: Claude Code puts the plugin's name in front of every plugin command.
 
 ---
 
@@ -187,7 +185,7 @@ The four hooks:
 
 Every hook always exits 0 and never blocks Claude Code. Timeouts: StopFailure 30 s, SessionStart 20 s, PreCompact 30 s, UserPromptSubmit 5 s.
 
-**The cut-off block** sits between two marker comments in `HANDOFF.md`. It names the reason ("usage limit reached — 5-hour limit, resets Sun 01 Nov 15:41 GMT"), the time of the cut-off and the recovered file. Your own text is never changed. Each chat gets its own block. When the new chat has picked up the work, mark the block as done (it stays as history):
+**The cut-off block** sits between two marker comments in `HANDOFF.md`. It names the reason ("usage limit reached — 5-hour limit, resets Sun 01 Nov 15:41 GMT"), the time of the cut-off and the recovered file. Your own text is never changed. Each chat gets its own block. While a block is unresolved, the `SessionStart` and `UserPromptSubmit` hooks tell Claude to run `limit-handoff resolve` once it has picked up the work, so Claude normally marks the block as done itself. The block stays as history. You can also run it yourself:
 
 ```bash
 limit-handoff resolve                      # all unresolved blocks
