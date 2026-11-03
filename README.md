@@ -10,7 +10,7 @@ A free plugin for **Claude Code**. It is built mainly for people who use **more 
 
 **The problem.** You are deep in a task and Claude Code stops: *"You've hit your session limit."* You switch to your other account and open a new chat. That chat knows nothing. You spend time, and the new account's tokens, explaining the goal, what is done, which files changed and where you stopped. Something always gets missed.
 
-**What limit-handoff does.** When the limit hits, it saves your place in your project folder and copies a short message to your clipboard. On the other account you paste that message into a new chat in the same project folder. Claude reads the saved notes and picks up at the next step, so you do not have to explain the task again.
+**What limit-handoff does.** When the limit hits, it saves your place in your project folder and **copies a short "paste prompt" to your clipboard** (it is also saved as `PASTE-PROMPT.txt` in that folder). On the other account you paste that message into a new chat in the same project folder. Claude reads the saved notes and picks up at the next step, so you do not have to explain the task again.
 
 **What it does not do.** It does not change, share or get around any limit, and it never touches your accounts or logins. It only saves notes on your own disk. Use each of your accounts within [Anthropic's terms](https://www.anthropic.com/legal/consumer-terms).
 
@@ -55,7 +55,11 @@ That is it. There are no settings to fill in. The plugin lives on your computer,
 
 When a limit hits, you type no command. The plugin does its part by itself. You only switch accounts, open a new chat and paste.
 
-**1. The limit hits.** Claude Code stops on account A. limit-handoff saves your place by itself, copies a short message to your clipboard (with your system's copy command, such as `pbcopy` on a Mac), and shows a desktop notification. The stopped chat shows nothing from the plugin, because Claude Code does not display what this hook prints.
+**1. The limit hits.** Claude Code stops on account A. limit-handoff saves your place by itself and shows a desktop notification.
+
+> **The paste prompt is copied to your clipboard automatically.** It is also saved as **`PASTE-PROMPT.txt` in your project folder** (for example `~/code/store/PASTE-PROMPT.txt`), so you can open and copy it from there at any time.
+
+The copy uses your system's copy command (such as `pbcopy` on a Mac) and replaces what was on your clipboard. The stopped chat shows nothing from the plugin, because Claude Code does not display what this hook prints. Look for the notification, or open `PASTE-PROMPT.txt`. (If the project folder cannot take the file, it goes to limit-handoff's state folder instead, and the notification says so.)
 
 **2. Switch to your other account.** In Claude Code, type `/login` and sign in with account B. (In Terminal you can also run `claude auth login`.)
 
@@ -65,7 +69,7 @@ When a limit hits, you type no command. The plugin does its part by itself. You 
 
 **4. Claude carries on.** It reads the saved notes, checks for a half-finished step, and continues from the next step. Until the handoff is marked as done, the plugin reminds Claude on each message to mark it (`limit-handoff resolve`) once it has checked the work. Claude usually does this by itself. If the reminder is still there after the work is picked up, tell Claude: *"The handoff is done. Resolve it."*
 
-**Paste, or type "carry on"?** Paste the message: it is the clearest start. If you cannot (the clipboard was overwritten), type *"carry on"* in the new chat instead. The plugin tells a new chat in that folder about the handoff by itself. The same message is also saved in the file `PASTE-PROMPT.txt` in your project folder.
+**Paste, or type "carry on"?** Paste the message: it is the clearest start. If the clipboard was overwritten, copy it again from **`PASTE-PROMPT.txt` in your project folder**, or type *"carry on"* in the new chat instead. The plugin tells a new chat in that folder about the handoff by itself.
 
 **Moving to the other account before the limit?** This part is not automatic, because no limit has hit yet. Say *"handoff"* in the chat; Claude usually picks the plugin's handoff skill from that word. To be sure, type `/limit-handoff:handoff` (Claude Code puts the plugin's name in front of every plugin command). Claude saves the task and shows the paste message in the chat.
 
