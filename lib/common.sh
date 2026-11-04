@@ -14,7 +14,7 @@ HK_LIB_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HK_ROOT="$(CDPATH='' cd "$HK_LIB_DIR/.." && pwd)"
 # Read by bin/limit-handoff, which sources this file. ShellCheck cannot see that read.
 # shellcheck disable=SC2034
-HK_VERSION="1.0.0"
+HK_VERSION="1.0.1"
 HK_DEFAULT_ERRORS="rate_limit billing_error unknown overloaded server_error"
 # Every StopFailure code Claude Code can send. Only these may be shown back to Claude or the user.
 # prompt_too_long is not a Claude Code code. The kit makes it for catch-up (see hk_catchup).
@@ -145,6 +145,10 @@ hk_real_path() {
     rest="/$(basename "$dir")$rest"
     dir="$up"
   done
+  case "$dir" in
+    /*) ;;
+    *) dir="./$dir" ;;
+  esac
   dir="$(CDPATH='' cd -P "$dir" 2>/dev/null && pwd -P)" || return 0
   if [ "$dir" = "/" ]; then dir=""; fi
   printf '%s%s/%s\n' "$dir" "$rest" "$name"
@@ -192,7 +196,10 @@ hk_file_mode() {
 # hk_atomic_write dest: reads stdin and replaces dest with it.
 # - A symlink is followed, so the file it points to is the one that changes and the link stays.
 # - The text goes to a temp file in the same folder first, then mv renames it over the target.
-# - The permission bits of an existing file are kept (a 600 file stays 600).
+#   mktemp makes the temp file with a random name and O_EXCL, so a link planted at a guessable
+#   temp name can never send the text to another file.
+# - The permission bits of an existing file are kept (a 600 file stays 600). A new file gets the
+#   usual bits for the user's umask, as if it was made with ">".
 # - A folder is never replaced. Returns non-zero on any failure, and leaves dest as it was.
 hk_atomic_write() {
   local dest mode="" tmp
@@ -200,12 +207,17 @@ hk_atomic_write() {
   if [ -z "$dest" ]; then
     return 1
   fi
-  tmp="$dest.tmp.$$"
   if [ -d "$dest" ]; then
     return 1
   fi
   if [ -e "$dest" ]; then
     mode="$(hk_file_mode "$dest")"
+  else
+    mode="$(printf '%o' "$(( 0666 & ~$(umask) ))")"
+  fi
+  tmp="$(mktemp "$dest.tmp.XXXXXX" 2>/dev/null)" || return 1
+  if [ -z "$tmp" ] || [ ! -f "$tmp" ] || [ -L "$tmp" ]; then
+    return 1
   fi
   # The 2>/dev/null comes before the > redirect on purpose: then a failed open of the temp file
   # is silent too. (The other way round, bash reports that failure on the real stderr.)
@@ -750,12 +762,30 @@ hk_read_input() {
   HK_ERROR=""
   HK_SOURCE=""
   HK_LAST_MSG=""
+  HK_INPUT_OK=0
   if [ -t 0 ]; then
+    return 0
+  fi
+  # A closed stdin is not read: inside $(...) bash would hand cat the substitution's own pipe,
+  # and the read would wait until the hook timeout. The test copies fd 0 to fd 9, which fails
+  # when fd 0 is closed. (bash skips "<&0" as a copy onto itself, so that test always passes.)
+  if ! { true 9<&0; } 2>/dev/null; then
     return 0
   fi
   HK_INPUT="$(cat 2>/dev/null)"
   if [ -z "$HK_INPUT" ]; then
     return 0
+  fi
+  # HK_INPUT_OK=1 when the input is a JSON object, the only shape Claude Code sends. The hooks
+  # that write files (StopFailure, PreCompact) do nothing without it, so an empty or broken input
+  # (for example a hook run by hand) never writes notes into whatever folder the shell is in.
+  # Without jq the check is that the text starts with "{".
+  if hk_have_jq; then
+    if printf '%s' "$HK_INPUT" | jq -e 'type == "object"' >/dev/null 2>&1; then HK_INPUT_OK=1; fi
+  else
+    case "$(printf '%s' "$HK_INPUT" | tr -d ' \t\r\n' | cut -c1)" in
+      "{") HK_INPUT_OK=1 ;;
+    esac
   fi
   HK_CWD="$(_hk_field cwd)"
   HK_SESSION="$(_hk_field session_id)"
@@ -772,6 +802,12 @@ hk_project_dir() {
   local cand
   for cand in "${HK_FORCE_DIR:-}" "${CLAUDE_PROJECT_DIR:-}" "${HK_CWD:-}" "$PWD"; do
     if [ -n "$cand" ] && [ -d "$cand" ]; then
+      # A relative name gets "./" first, so a folder named "-x" or "-" is never read by cd as
+      # an option (or as "the previous folder").
+      case "$cand" in
+        /*) ;;
+        *) cand="./$cand" ;;
+      esac
       HK_PROJECT_DIR="$(CDPATH='' cd "$cand" && pwd)"
       return 0
     fi
@@ -1025,9 +1061,10 @@ hk_upsert_cutoff() {
 
 # hk_first_next_step file: prints the next step from the "## Next steps" section.
 # It is the first list item (strips "1. ", "- ", "* " and the checkbox "[ ]" or "[~]").
-# Rule for finished items: a "[x]" item is skipped when the section also has an open
-# "[ ]" item, so a finished step is never handed out as the next one. When there is no
-# open "[ ]" item, the first list item is used. Empty when there is no item.
+# Rule for finished items: a "[x]" item is always skipped, so a finished step is never handed
+# out as the next one. The first item that is not "[x]" is used (an open box, a "[~]" box or
+# a plain item). Empty when there is no item, or when every item is "[x]" (then the paste
+# prompt asks Claude to work out the next step instead).
 hk_first_next_step() {
   [ -f "$1" ] || return 0
   awk '
@@ -1047,11 +1084,9 @@ hk_first_next_step() {
     }
     END {
       if (n == 0) exit
-      has_open = 0
-      for (i = 1; i <= n; i++) if (st[i] == "box") has_open = 1
       pick = 0
       for (i = 1; i <= n && pick == 0; i++) {
-        if (!has_open || st[i] != "x") pick = i
+        if (st[i] != "x") pick = i
       }
       if (pick > 0) print txt[pick]
     }
@@ -1296,6 +1331,20 @@ hk_git_line() {
   printf '%s' "$1" | tr -d '\001-\037\177' | tr '`' "'" | cut -c1-"$2"
 }
 
+# hk_redact_line text: prints text with token-shaped strings replaced by [redacted]. It uses the
+# same rules as the transcript (the "redact" part of lib/transcript.jq, between its marker
+# comments), so there is one list of rules. Without jq, or when the rules cannot be read, it
+# prints nothing: text that cannot be checked is left out.
+hk_redact_line() {
+  if [ -z "${HK_REDACT_DEF:-}" ]; then
+    HK_REDACT_DEF="$(sed -n '/^# >>> redact/,/^# <<< redact/p' "$HK_LIB_DIR/transcript.jq" 2>/dev/null)"
+  fi
+  if [ -z "$HK_REDACT_DEF" ] || ! hk_have_jq; then
+    return 0
+  fi
+  jq -nr --arg s "$1" "$HK_REDACT_DEF"$'\n''$s | redact' 2>/dev/null
+}
+
 # _hk_git dir args...: runs one git command in dir and prints its output. Errors are dropped.
 # stdin is /dev/null, and the environment stops optional locks, prompts and the pager.
 # HK_GIT_ARGS (the -c settings) is set by hk_git_state before the first call.
@@ -1362,6 +1411,8 @@ hk_git_state() {
       *" "*) subj="${last#* }" ;;
     esac
     lastline="$(hk_git_line "$hash" 40)"
+    # A commit subject can hold a pasted key, so it gets the same redaction as chat text.
+    if [ -n "$subj" ]; then subj="$(hk_redact_line "$subj")"; fi
     if [ -n "$subj" ]; then lastline="$lastline $(hk_git_line "$subj" 120)"; fi
     if [ -z "$lastline" ]; then lastline="(unknown)"; fi
     diffsum="$(_hk_git "$dir" diff --no-ext-diff --no-textconv --no-color --stat HEAD | tail -n 1)"

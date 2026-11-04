@@ -17,17 +17,36 @@ def clip($n): if type == "string" and length > $n then .[0:$n] + "…" else . en
 # or heading, or show in a misleading order. Multi-line prompts keep their line breaks (they are quoted).
 def plain: gsub("[[:cntrl:]\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]"; "") | gsub("`"; "'");
 
-# Token-shaped strings are replaced with [redacted] before anything is written: API keys and
-# access tokens in their usual shapes, and long runs of hex or base64 letters (40 or more). A
-# base64 run must mix letters and digits, so a long plain word or file name is kept.
+# Token-shaped strings are replaced with [redacted] before anything is written:
+#   - private key blocks (-----BEGIN ... PRIVATE KEY----- to the END line, or to the end of the text);
+#   - API keys and access tokens in their usual shapes (Anthropic/OpenAI sk-, Stripe sk_live_/rk_/pk_,
+#     GitHub, Google AIza, npm, AWS key ids, Slack, JWTs);
+#   - the password in a URL (scheme://user:PASSWORD@host);
+#   - the value after a secret-like name (password=, "api_key": "...", TOKEN=, secret: ...);
+#   - the token after "Bearer";
+#   - long runs (40 or more) of hex, or of base64 letters that mix letters and digits. A run that
+#     contains "/" (an AWS secret key, a line of a key file) must also mix upper and lower case,
+#     must not start with "/" and must not follow a letter, digit, "+" or "/", so file paths are kept.
+# hk_redact_line in lib/common.sh reads the lines between the two marker comments, so keep them.
+# >>> redact
 def redact:
-  gsub("sk-[A-Za-z0-9_-]{16,}"; "[redacted]")
+  gsub("-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?(?:-----END[A-Z ]*PRIVATE KEY-----|\\z)"; "[redacted private key]")
+  | gsub("sk-[A-Za-z0-9_-]{16,}"; "[redacted]")
+  | gsub("[rsp]k_(?:live|test)_[A-Za-z0-9]{10,}"; "[redacted]")
   | gsub("gh[pousr]_[A-Za-z0-9]{20,}"; "[redacted]")
   | gsub("github_pat_[A-Za-z0-9_]{20,}"; "[redacted]")
-  | gsub("AKIA[0-9A-Z]{16}"; "[redacted]")
-  | gsub("xox[bp]-[A-Za-z0-9-]{10,}"; "[redacted]")
+  | gsub("AIza[0-9A-Za-z_-]{30,}"; "[redacted]")
+  | gsub("npm_[A-Za-z0-9]{20,}"; "[redacted]")
+  | gsub("(?:AKIA|ASIA)[0-9A-Z]{16}"; "[redacted]")
+  | gsub("xox[abpors]-[A-Za-z0-9-]{10,}"; "[redacted]")
+  | gsub("eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}"; "[redacted]")
+  | gsub("(?<k>[A-Za-z][A-Za-z0-9+.-]*://[^/\\s:@]+:)[^@\\s/]+@"; "\(.k)[redacted]@")
+  | gsub("(?<k>(?<![A-Za-z])(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)[A-Za-z0-9_]*[\"']?(?:\\s*=\\s*|:\\s*(?=[\"'])|:(?=[^\\s/]))[\"']?)[^\\s\"'&;,]{3,}"; "\(.k)[redacted]"; "i")
+  | gsub("(?<k>(?<![A-Za-z])bearer\\s+)[A-Za-z0-9._~+/=-]{16,}"; "\(.k)[redacted]"; "i")
   | gsub("[A-Fa-f0-9]{40,}"; "[redacted]")
-  | gsub("(?=[A-Za-z0-9+]*[0-9])(?=[A-Za-z0-9+]*[A-Za-z])[A-Za-z0-9+]{40,}"; "[redacted]");
+  | gsub("(?=[A-Za-z0-9+]*[0-9])(?=[A-Za-z0-9+]*[A-Za-z])[A-Za-z0-9+]{40,}"; "[redacted]")
+  | gsub("(?<![A-Za-z0-9+/])(?=[A-Za-z0-9+/]*/)(?=[A-Za-z0-9+/]*[0-9])(?=[A-Za-z0-9+/]*[a-z])(?=[A-Za-z0-9+/]*[A-Z])[A-Za-z0-9+][A-Za-z0-9+/]{39,}=*"; "[redacted]");
+# <<< redact
 
 # Output text: redacted, then cut. Plain text also loses its control characters and backticks.
 # The text is first cut to a little more than $n, so the redact patterns never scan a huge string
@@ -73,10 +92,26 @@ def msg: if (.message | type) == "object" then .message else {} end;
 
 # Remove whole <system-reminder>...</system-reminder> sections from a text.
 # Some clients put a reminder and the typed prompt in the same message.
+# The text is split at each opening tag and each piece is read once, so the time grows in step
+# with the text. (A lazy regex scanned to the end of the text for every unclosed opening tag: a
+# prompt with many of them took more than the hook's 30 s.) Same result as that regex: a section
+# runs from an opening tag to the first closing tag after it, so pieces up to the last piece
+# that has a closing tag keep only the text after their closing tag (a piece with none is inside
+# a section). Opening tags after that last closing tag are kept as text.
+# Only the first 1,000,000 characters are read (far more than any real reminder), so even a
+# hostile prompt is done in well under a second. split is used, not index: jq 1.6 gives index
+# in bytes, which would cut text with non-English letters in the wrong place.
 # Text over 2000 characters is cut first, then trimmed, then gets an ellipsis. On a long run of spaces the trim is slow, and clean cuts the text to 600
 # characters anyway.
 def strip_reminders:
-  gsub("<system-reminder>[\\s\\S]*?</system-reminder>"; "")
+  (if length > 1000000 then .[0:1000000] else . end)
+  | split("<system-reminder>") as $parts
+  | [ $parts[1:][] | split("</system-reminder>") ] as $sp
+  | (([ $sp | to_entries[] | select(.value | length > 1) | .key ] | last) // -1) as $last
+  | ([ $parts[0] ]
+     + [ range(0; $last + 1) | $sp[.] | select(length > 1) | .[1:] | join("</system-reminder>") ]
+     + [ range($last + 1; $sp | length) | "<system-reminder>" + $parts[. + 1] ])
+  | join("")
   | sub("^\\s+"; "")
   | (if length > 2000 then (.[0:2000] | sub("\\s+$"; "")) + "…" else sub("\\s+$"; "") end);
 

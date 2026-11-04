@@ -23,6 +23,11 @@ fi
 
 hk_stop_failure_main() {
   hk_read_input
+  # Claude Code always sends a JSON object. Empty or broken input writes nothing (see hk_read_input).
+  if [ "${HK_INPUT_OK:-0}" != 1 ]; then
+    hk_log info "StopFailure input is empty or not a JSON object; nothing written"
+    return 0
+  fi
   hk_project_dir
 
   local raw err sid reason base_reason allowed norm json rc note rec_rel rec_abs hf

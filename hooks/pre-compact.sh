@@ -12,6 +12,11 @@ fi
 
 hk_pre_compact_main() {
   hk_read_input
+  # Claude Code always sends a JSON object. Empty or broken input writes nothing (see hk_read_input).
+  if [ "${HK_INPUT_OK:-0}" != 1 ]; then
+    hk_log info "PreCompact input is empty or not a JSON object; nothing written"
+    return 0
+  fi
   hk_project_dir
   local sid json rc note rel
   sid="$(hk_clean_token "${HK_SESSION:-}")"

@@ -5,7 +5,20 @@
 # Settings files are only written when you pass --settings yourself. Every
 # change is preceded by a timestamped backup, and invalid JSON is never touched.
 
-HK_BIN_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The tool may be run through a symlink (for example ~/bin/limit-handoff), so the links are
+# followed to the real file first: lib/ is found next to the real bin/ folder.
+hk_self="${BASH_SOURCE[0]}"
+hk_hops=0
+while [ -L "$hk_self" ] && [ "$hk_hops" -lt 40 ]; do
+  hk_link="$(readlink "$hk_self")" || break
+  case "$hk_link" in
+    /*) hk_self="$hk_link" ;;
+    *) hk_self="$(dirname "$hk_self")/$hk_link" ;;
+  esac
+  hk_hops=$((hk_hops + 1))
+done
+HK_BIN_DIR="$(CDPATH='' cd "$(dirname "$hk_self")" && pwd)"
+unset hk_self hk_hops hk_link
 if [ ! -f "$HK_BIN_DIR/../lib/common.sh" ]; then
   echo "limit-handoff: cannot find lib/common.sh next to bin/" >&2
   exit 1
@@ -98,6 +111,11 @@ settings_apply() {
 
   # A settings.json that is a symlink (for example into a dotfiles folder) stays a link:
   # the file it points to is the one that is read and changed.
+  # A link to a file that does not exist is refused too: writing through it would make a new
+  # file somewhere the user may not expect.
+  if [ -L "$file" ] && [ ! -e "$file" ]; then
+    die "the settings file is a dangling link (it points to a file that does not exist), so it cannot be used: $file"
+  fi
   real="$(hk_real_path "$file")"
   [ -n "$real" ] || die "the settings file goes through a dangling link, so it cannot be used: $file"
   file="$real"
@@ -159,6 +177,11 @@ settings_apply() {
     diff -u --label "$file (now)" --label "$file (after $mode)" "$tmp_old" "$tmp_new"
     rm -f "$tmp_old" "$tmp_new"
     return 0
+  fi
+
+  # A read-only file is a choice the user made, so it is not replaced.
+  if [ -f "$file" ] && [ ! -w "$file" ]; then
+    die "$file is read-only, so it was not changed. Make it writable (chmod u+w) and run this again."
   fi
 
   if [ -f "$file" ]; then

@@ -215,7 +215,7 @@ limit-handoff resolve --session <id>       # one chat, when several were cut off
 
 **Cloned repositories cannot steer it.** A repository you clone may ship its own `.claude/limit-handoff.conf`, but these keys are read only from the environment or your user config, never from the project file: `LIMIT_HANDOFF_FILE`, `_PROMPT_FILE`, `_RECOVER_DIR`, `_TAIL_LINES`, `_KEEP`, `_FOLLOW_LINKS`, `_CLIPBOARD`, `_NOTIFY`, `_STATE_DIR`. A `HANDOFF.md`, `PASTE-PROMPT.txt`, `LATEST.md` or recovered file that is a symbolic link out of the project, or into `.git` or `.claude`, is not read or written. If you keep `HANDOFF.md` as a link on purpose (for example into a dotfiles folder), set `LIMIT_HANDOFF_FOLLOW_LINKS=1` in your own config.
 
-**Less private text on disk.** Recovered text has control characters, direction marks and backticks removed from paths and commands, and token-shaped strings (API keys, GitHub and Slack tokens, AWS key ids, long hex or base64 runs) are replaced with `[redacted]`. A `HANDOFF.md` that the kit creates does not copy your recent messages; they stay in the recovered file. Its goal is the first request in the part of the chat that is read, with token-shaped strings hidden.
+**Less private text on disk.** Recovered text has control characters, direction marks and backticks removed from paths and commands. Secret-shaped text is replaced with `[redacted]`, in chat text and in the git commit line: private key blocks; API keys and tokens in their usual shapes (Anthropic and OpenAI `sk-`, Stripe, GitHub, Google, npm, AWS, Slack, JWTs); the password in a URL like `postgres://user:PASSWORD@host`; the value after a secret-like name (`password=`, `"api_key": "…"`, `TOKEN=`); the token after `Bearer`; and long hex or base64 runs (an AWS secret key, a line of a key file). This is a safety net, not a guarantee: a secret in an unusual shape can still show, so check the files before you share them. A `HANDOFF.md` that the kit creates does not copy your recent messages; they stay in the recovered file. Its goal is the first request in the part of the chat that is read, with token-shaped strings hidden.
 
 **Keep chat text out of git.** `.handoff/` gets its own `.gitignore` (`*`). `PASTE-PROMPT.txt` and an auto-created `HANDOFF.md` are made from chat text, so check them before you commit them. Many people add these lines to `.gitignore`:
 
@@ -371,7 +371,7 @@ The plugin also adds a `/limit-handoff:handoff` skill: it saves the full task st
 /bin/bash tests/run.sh
 ```
 
-501 tests, pure bash and jq, run on macOS (`/bin/bash` 3.2) and Ubuntu in CI. Each test gets a temp HOME and state folder, and clipboard, notification and `claude` are replaced by shims, so a run never touches your real setup. ShellCheck must pass at warning level:
+517 tests, pure bash and jq, run on macOS (`/bin/bash` 3.2) and Ubuntu in CI. Each test gets a temp HOME and state folder, and clipboard, notification and `claude` are replaced by shims, so a run never touches your real setup. ShellCheck must pass at warning level:
 
 ```bash
 shellcheck --shell=bash --severity=warning --external-sources bin/limit-handoff hooks/*.sh lib/common.sh
@@ -379,6 +379,6 @@ shellcheck --shell=bash --severity=warning --external-sources bin/limit-handoff 
 
 Design notes are in [`docs/DECISIONS.md`](docs/DECISIONS.md) and [`docs/SPEC.md`](docs/SPEC.md). See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) (report problems privately through GitHub) and [CHANGELOG.md](CHANGELOG.md).
 
-Version 1.0.0. MIT licence, see [LICENSE](LICENSE).
+Version 1.0.1. MIT licence, see [LICENSE](LICENSE).
 
 Not affiliated with or endorsed by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic.

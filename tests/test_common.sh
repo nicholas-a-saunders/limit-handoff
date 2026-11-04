@@ -47,7 +47,7 @@ test_first_next_step_formats() {
   printf '%s\n' '## Next steps' '- [ ] Open checkbox' > "$f"
   assert_eq "Open checkbox" "$(hk_first_next_step "$f")"
   printf '%s\n' '## Next steps' '- [x] Done box' '- [~] Half box' > "$f"
-  assert_eq "Done box" "$(hk_first_next_step "$f")"
+  assert_eq "Half box" "$(hk_first_next_step "$f")" "a finished item is always skipped (DECISIONS #192)"
 }
 
 test_first_next_step_stops_at_next_heading_and_handles_no_section() {

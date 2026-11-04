@@ -5,6 +5,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-04
+
+### Fixes from a full test of the public release
+
+- **More secrets are hidden.** Private key blocks, Stripe, Google and npm keys, AWS secret keys (which contain `/`), JWTs, a password in a URL, the value after names like `password=` or `"api_key":`, and Bearer tokens are now replaced with `[redacted]`. The git commit line in the recovered file gets the same rules.
+- **No finished step as the next step.** When every item in "Next steps" is ticked `[x]`, the paste prompt no longer says "start with" a finished item; it asks Claude to work out the next step. A `[x]` item is now always skipped.
+- **Long prompts no longer stop the handoff.** Removing `<system-reminder>` sections took time that grew with the square of the text, so a prompt with many unclosed tags could run past the hook's 30 s limit. It now takes well under a second.
+- **Empty or broken hook input writes nothing.** A hook run by hand with empty or non-JSON input used to write notes into whatever folder the shell was in. A closed stdin no longer makes a hook wait until its timeout.
+- **The command line tool works through a symlink** (for example `ln -s …/bin/limit-handoff ~/bin/`).
+- **A `--dir` whose name starts with `-`** is used as a folder, not read as a `cd` option.
+- **`install` and `uninstall` refuse a settings file that is read-only or a dangling link**, instead of replacing it or making a new file.
+- **Safer temp files.** Files are written through a temp file with a random name (`mktemp`), so a link planted at a guessable name cannot send the text elsewhere.
+- 16 new tests (517 in all). 13 of them fail on the 1.0.0 code.
+
 ## [1.0.0] - 2026-11-03
 
 First public release.
@@ -49,5 +63,6 @@ These came from testing the repository the way a new user would, before the firs
 - **README.** The pitch is about carrying on in a new chat, with a "What it does not do" line (no limit is changed or bypassed; use each account within Anthropic's terms); why a second account is needed (the limit is per account); paste is the main way and "carry on" the fallback; Claude usually, not always, marks the handoff as done; `limit-handoff` runs inside a Claude chat, not in your own Terminal (full path given); "Remove it" no longer says to delete your own `HANDOFF.md`; the state folder, the created goal, the token cost and the subagent and debounce limits are described as they are.
 - **SECURITY.md.** The next-step line from `HANDOFF.md` is named as the one text a project file can show to Claude.
 
-[Unreleased]: https://github.com/nicholas-a-saunders/limit-handoff/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/nicholas-a-saunders/limit-handoff/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/nicholas-a-saunders/limit-handoff/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/nicholas-a-saunders/limit-handoff/releases/tag/v1.0.0
