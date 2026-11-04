@@ -27,26 +27,33 @@ bash_line() {
 # --- F1: more secret shapes are redacted --------------------------------------
 
 test_f1_common_secret_shapes_are_redacted() {
-  local p="$CLAUDE_PROJECT_DIR" t="$TL_TMP/sec.jsonl" aws stripe goog npm pem jwt
-  # The fake secrets are built at run time, so no whole token-shaped string sits in this file.
+  local p="$CLAUDE_PROJECT_DIR" t="$TL_TMP/sec.jsonl" aws stripe goog npm pem jwt kb ke pw hunter ak cs bt
+  # The fake secrets are built at run time, so no whole secret-shaped string sits in this file
+  # (secret scanners such as GitGuardian read every pushed file). None of them is real.
   aws="wJalrXUtnFEMI/K7MDENG/bPxRfi""CYEXAMPLEKEY"
+  pw="SuperSecret""Pw9"
+  hunter="hunter""2"
+  ak="abc123""xyz789"
+  cs="zzTop""Secret1"
+  bt="abcdefghij""klmnop1234"
   stripe="sk_live_""a1B2c3D4e5F6g7H8i9J0k1L2"
   goog="AIza""SyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p"
   npm="npm_""aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE3fG5"
-  pem="3OyV2dZAkg05rK+gqv81RKMGHZEM9YpvujA/C5Q52ryFlwRlOEVHzc0X0AWIRh/J"
-  jwt="eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+  pem="3OyV2dZAkg05rK+gqv81RKMGHZEM9Ypvu""jA/C5Q52ryFlwRlOEVHzc0X0AWIRh/J"
+  kb="-----BEGIN PRIVATE"" KEY-----"
+  ke="-----END PRIVATE"" KEY-----"
+  jwt="eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.""dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
   {
     user_line "deploy with $aws and $stripe and $goog and $npm"
-    user_line "db is postgres://app:SuperSecretPw9@db.example.invalid/x and password=hunter2 and $jwt"
-    user_line '{"api_key": "abc123xyz789", "client_secret":"zzTopSecret1"} Authorization: Bearer abcdefghijklmnop1234'
-    bash_line "printf '%s\n' '-----BEGIN PRIVATE KEY-----' '$pem' '-----END PRIVATE KEY-----' > k.pem"
+    user_line "db is postgres://app:$pw@db.example.invalid/x and password=$hunter and $jwt"
+    user_line "{\"api_key\": \"$ak\", \"client_secret\":\"$cs\"} Authorization: Bearer $bt"
+    bash_line "printf '%s\n' '$kb' '$pem' '$ke' > k.pem"
     bash_line "echo $pem"
   } > "$t"
   tl_kit recover --transcript "$t" --dir "$p" --stdout
   assert_exit 0 "$TL_RC"
   local s
-  for s in "$aws" "$stripe" "$goog" "$npm" "SuperSecretPw9" "hunter2" "$jwt" "abc123xyz789" "zzTopSecret1" \
-           "abcdefghijklmnop1234" "$pem" "3OyV2dZAkg05rK"; do
+  for s in "$aws" "$stripe" "$goog" "$npm" "$pw" "$hunter" "$jwt" "$ak" "$cs" "$bt" "$pem" "3OyV2dZAkg05rK"; do
     assert_not_contains "$TL_OUT" "$s" "secret shown: ${s:0:12}..."
   done
   assert_contains "$TL_OUT" "postgres://app:[redacted]@db.example.invalid/x" "the URL is kept, only the password goes"
