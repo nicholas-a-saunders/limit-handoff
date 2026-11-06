@@ -79,6 +79,9 @@ expand_path() {
   case "$1" in
     "~") printf '%s\n' "$HOME" ;;
     \~/*) printf '%s/%s\n' "$HOME" "${1#\~/}" ;;
+    # A relative name that starts with "-" gets "./" first, so dirname and basename never read
+    # it as an option.
+    -*) printf './%s\n' "$1" ;;
     *) printf '%s\n' "$1" ;;
   esac
 }
@@ -229,23 +232,30 @@ cmd_install() {
   errs_norm="$(printf '%s' "$errors" | tr '|,' '  ')"
   [ -n "$(printf '%s' "$errs_norm" | tr -d ' ')" ] || usage_err "--errors cannot be empty"
   errs_pipe=""
+  # set -f: a code such as "*" must stay a word and never become file names from this folder.
+  set -f
   for e in $errs_norm; do
     if [ "$e" = "prompt_too_long" ] || ! hk_in_list "$e" $HK_STOP_CODES; then
       usage_err "unknown error code in --errors: $e. Codes you can use: $(printf '%s' "$HK_STOP_CODES" | tr ' ' '\n' | grep -v '^prompt_too_long$' | tr '\n' ' ' | sed 's/ $//')"
     fi
     errs_pipe="${errs_pipe:+$errs_pipe|}$e"
   done
+  set +f
 
   evs_norm="$(printf '%s' "$events" | tr ',' ' ')"
   [ -n "$(printf '%s' "$evs_norm" | tr -d ' ')" ] || usage_err "--events cannot be empty"
+  set -f
   for e in $evs_norm; do
     if ! hk_in_list "$e" $HK_ALL_EVENTS; then
       usage_err "unknown event in --events: $e. Valid events: stop-failure, prompt-submit, session-start, pre-compact"
     fi
   done
+  set +f
   # After every usage check (those exit 2), before anything is read or changed.
   hk_have_jq || die "install needs jq to read and change the settings file. Install jq first. Nothing was changed."
+  set -f
   sel="$(jq -n -c '$ARGS.positional' --args $evs_norm)"
+  set +f
 
   for script in stop-failure prompt-submit session-start pre-compact; do
     if [ ! -f "$HK_ROOT/hooks/$script.sh" ]; then
@@ -330,7 +340,7 @@ cmd_status() {
   if [ -f "$hf" ]; then
     age="$(hk_file_age_min "$hf")"
     echo "Handoff file:   $hf (last updated $age min ago)"
-    unresolved="$(grep -c '^<!-- limit-handoff:cutoff .*status="unresolved"' "$hf" 2>/dev/null)"
+    unresolved="$(hk_unfenced_view "$hf" | grep -c '^<!-- limit-handoff:cutoff .*status="unresolved"' 2>/dev/null)"
     echo "Unresolved cut-offs: ${unresolved:-0}"
   else
     echo "Handoff file:   not found ($hf)"
@@ -488,20 +498,21 @@ cmd_resolve() {
   hf="$(hk_handoff_path)"
   [ -f "$hf" ] || die "no $(hk_handoff_name) in $HK_PROJECT_DIR. Run this from your project folder, or add --dir <project folder>."
   hk_final_link_ok "$hf" || die "$(hk_handoff_name) is a link to a place outside the project. Set LIMIT_HANDOFF_FOLLOW_LINKS=1 in your own settings to allow it."
+  [ -w "$hf" ] || die "$hf is read-only, so it was not changed. Make it writable (chmod u+w) and run resolve again."
 
   # Read and write under the same lock the hooks use, so a hook cannot change the file in between.
   hk_lock_take "$hf"
-  n="$(HK_RESOLVE_SID="$sid" awk '
+  n="$(hk_unfenced_view "$hf" | HK_RESOLVE_SID="$sid" awk '
     BEGIN { s = ENVIRON["HK_RESOLVE_SID"]; n = 0 }
     /^<!-- limit-handoff:cutoff / && /status="unresolved"/ {
       if (s == "" || index($0, "session=\"" s "\"") > 0) n++
     }
-    END { print n + 0 }' "$hf")" || { hk_lock_release; die "could not read $hf"; }
+    END { print n + 0 }')" || { hk_lock_release; die "could not read $hf"; }
 
   if [ "$n" = "0" ]; then
     hk_lock_release
     if [ -n "$sid" ]; then
-      open="$(awk '/^<!-- limit-handoff:cutoff / && /status="unresolved"/ { if (match($0, /session="[^"]*"/)) print substr($0, RSTART + 9, RLENGTH - 10) }' "$hf" | sort -u | tr '\n' ' ')"
+      open="$(hk_unfenced_view "$hf" | awk '/^<!-- limit-handoff:cutoff / && /status="unresolved"/ { if (match($0, /session="[^"]*"/)) print substr($0, RSTART + 9, RLENGTH - 10) }' | sort -u | tr '\n' ' ')"
       die "no unresolved cut-off for session $sid in $hf. Open sessions: ${open:-none}."
     fi
     echo "No unresolved cut-off blocks found in $hf."
@@ -510,8 +521,9 @@ cmd_resolve() {
 
   # The marker line gets status="resolved". The visible first line of the same block gets a
   # "(resolved)" mark too, so a person reading the file can see it. The rest of the text stays.
-  out="$(HK_RESOLVE_SID="$sid" awk '
+  out="$(HK_RESOLVE_SID="$sid" awk "$HK_AWK_FENCE"'
     BEGIN { s = ENVIRON["HK_RESOLVE_SID"]; mark = 0 }
+    hk_fence($0) { print; next }
     /^<!-- limit-handoff:cutoff / {
       mark = 0
       if (/status="unresolved"/ && (s == "" || index($0, "session=\"" s "\"") > 0)) {
@@ -559,7 +571,7 @@ simulate_sample_copy() {
 }
 
 cmd_simulate() {
-  local dir="" err="rate_limit" transcript="" copy=0 sid payload hf prompt_file rec f allowed_norm before after sample=0
+  local dir="" err="rate_limit" transcript="" copy=0 sid payload hf prompt_file rec f allowed_norm before after sample=0 sbefore sprompt prompt_ok
   while [ $# -gt 0 ]; do
     case "$1" in
       --dir) [ $# -ge 2 ] || usage_err "--dir needs a folder"; dir="$2"; shift 2 ;;
@@ -582,11 +594,14 @@ cmd_simulate() {
   if [ "$sample" = 1 ]; then
     transcript="$(simulate_sample_copy "$transcript" "$err")" || die "could not prepare the sample transcript"
   fi
-  allowed_norm="$(hk_conf LIMIT_HANDOFF_ERRORS "$HK_DEFAULT_ERRORS" | tr '|,' '  ')"
+  allowed_norm="$(hk_error_list)"
+  set -f
   if ! hk_in_list "$err" $allowed_norm; then
+    set +f
     echo "Nothing was written: $err is not in LIMIT_HANDOFF_ERRORS. Add it there to test it. Log: $(hk_state_dir)/limit-handoff.log"
     exit 1
   fi
+  set +f
 
   # A unique id per run, so this run's files are found and no older file is mistaken for them.
   sid="simulated-$(hk_now_stamp)-$$"
@@ -597,6 +612,8 @@ cmd_simulate() {
   # The paste prompt counts as written only when this run changed it (an old file is not this run's).
   before=""
   if [ -f "$(hk_prompt_path)" ]; then before="$(cksum < "$(hk_prompt_path)")"; fi
+  sbefore=""
+  if [ -f "$(hk_state_dir)/$(hk_prompt_name)" ]; then sbefore="$(cksum < "$(hk_state_dir)/$(hk_prompt_name)")"; fi
 
   # Without --copy, simulate must never touch the clipboard, so it forces it off.
   # Notifications stay off unless the user set LIMIT_HANDOFF_NOTIFY in the environment.
@@ -612,15 +629,21 @@ cmd_simulate() {
   hf="$(hk_handoff_path)"
   prompt_file="$(hk_prompt_path)"
   echo "Simulated a StopFailure ($err) with session id $sid in $HK_PROJECT_DIR."
-  if [ -f "$hf" ] && grep -q "limit-handoff:cutoff session=\"$sid\"" "$hf"; then
+  if hk_has_session_block "$hf" "$sid"; then
     echo "  HANDOFF.md: cut-off block added ($hf)"
   else
     echo "  HANDOFF.md: no cut-off block written (see the log)"
   fi
   after=""
   if [ -f "$prompt_file" ]; then after="$(cksum < "$prompt_file")"; fi
+  prompt_ok=0
+  sprompt="$(hk_state_dir)/$(hk_prompt_name)"
   if [ -f "$prompt_file" ] && [ "$after" != "$before" ]; then
     echo "  Paste prompt: $prompt_file"
+    prompt_ok=1
+  elif [ -f "$sprompt" ] && [ "$(cksum < "$sprompt")" != "$sbefore" ]; then
+    echo "  Paste prompt: $sprompt (the project folder could not take it)"
+    prompt_ok=1
   else
     echo "  Paste prompt: not written (see the log)"
   fi
@@ -635,8 +658,8 @@ cmd_simulate() {
   else
     echo "  Recovered context: not written (see the log)"
   fi
-  # Success means both the cut-off block and the recovered file for this run were written.
-  if [ -n "$rec" ] && [ -f "$hf" ] && grep -q "limit-handoff:cutoff session=\"$sid\"" "$hf"; then
+  # Success means the cut-off block, the recovered file and the paste prompt for this run were written.
+  if [ -n "$rec" ] && [ "$prompt_ok" = 1 ] && hk_has_session_block "$hf" "$sid"; then
     return 0
   fi
   return 1

@@ -1,7 +1,7 @@
 {
   "name": "limit-handoff",
   "displayName": "Limit Handoff",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Carry on with the same task in a new Claude Code chat after a usage limit, on your other account or another machine, without re-explaining: saves HANDOFF.md, the recent context and a paste prompt.",
   "author": {
     "name": "Nicholas Saunders",

@@ -14,7 +14,7 @@ HK_LIB_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HK_ROOT="$(CDPATH='' cd "$HK_LIB_DIR/.." && pwd)"
 # Read by bin/limit-handoff, which sources this file. ShellCheck cannot see that read.
 # shellcheck disable=SC2034
-HK_VERSION="1.0.1"
+HK_VERSION="1.0.2"
 HK_DEFAULT_ERRORS="rate_limit billing_error unknown overloaded server_error"
 # Every StopFailure code Claude Code can send. Only these may be shown back to Claude or the user.
 # prompt_too_long is not a Claude Code code. The kit makes it for catch-up (see hk_catchup).
@@ -127,6 +127,7 @@ hk_safe_rel() {
 # so callers must treat an empty answer as "not inside the project".
 hk_real_path() {
   local p="$1" hops=0 target dir name rest="" up
+  case "$p" in -*) p="./$p" ;; esac
   while [ -L "$p" ] && [ "$hops" -lt 20 ]; do
     target="$(readlink "$p" 2>/dev/null)" || break
     [ -n "$target" ] || break
@@ -199,7 +200,8 @@ hk_file_mode() {
 #   mktemp makes the temp file with a random name and O_EXCL, so a link planted at a guessable
 #   temp name can never send the text to another file.
 # - The permission bits of an existing file are kept (a 600 file stays 600). A new file gets the
-#   usual bits for the user's umask, as if it was made with ">".
+#   usual bits for the user's umask, as if it was made with ">". A caller can set HK_NEW_MODE
+#   (for example 600) for a new file that holds chat text: then only the user can read it.
 # - A folder is never replaced. Returns non-zero on any failure, and leaves dest as it was.
 hk_atomic_write() {
   local dest mode="" tmp
@@ -212,6 +214,8 @@ hk_atomic_write() {
   fi
   if [ -e "$dest" ]; then
     mode="$(hk_file_mode "$dest")"
+  elif [ -n "${HK_NEW_MODE:-}" ]; then
+    mode="$HK_NEW_MODE"
   else
     mode="$(printf '%o' "$(( 0666 & ~$(umask) ))")"
   fi
@@ -405,7 +409,8 @@ hk_state_dir() {
   fi
   dir="$(hk_conf_trusted LIMIT_HANDOFF_STATE_DIR "$default")"
   dir="$(hk_expand_home "$dir")"
-  mkdir -p "$dir" 2>/dev/null
+  # A new state folder is private (700): the log and the markers name projects and chats.
+  if [ ! -d "$dir" ]; then ( umask 077; mkdir -p "$dir" ) 2>/dev/null; fi
   printf '%s\n' "$dir"
 }
 
@@ -423,7 +428,9 @@ hk_user_settings_file() {
 hk_log() {
   local dir msg
   dir="$(hk_state_dir)"
-  msg="$(printf '%s' "${2:-}" | tr '\n\r' '  ' | cut -c1-500)"
+  msg="$(printf '%s' "${2:-}" | tr '\n\r' '  ' | hk_cut_chars 500)"
+  # A new log is private (600), like the files that hold chat text.
+  if [ ! -e "$dir/limit-handoff.log" ]; then ( umask 077; : >> "$dir/limit-handoff.log" ) 2>/dev/null; fi
   printf '%s %s %s\n' "$(hk_now_iso)" "${1:-info}" "$msg" >> "$dir/limit-handoff.log" 2>/dev/null
   return 0
 }
@@ -447,6 +454,9 @@ _hk_trim() {
 _hk_conf_read_file() {
   local f="$1" key="$2" line val="" found=0 k
   [ -f "$f" ] && [ -r "$f" ] || return 1
+  # A real config file is a few hundred bytes. One over 64 KB is skipped: it is read once per key,
+  # and a huge file made the StopFailure hook take more than 10 seconds (stress test L5).
+  [ "$(wc -c < "$f" 2>/dev/null | tr -d ' ')" -le 65536 ] 2>/dev/null || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       *=*) ;;
@@ -509,7 +519,7 @@ hk_conf_trusted() {
 }
 
 # The keys hk_conf_trusted and hk_int_conf_trusted read. A project file may not set them.
-HK_USER_ONLY_KEYS="LIMIT_HANDOFF_FILE LIMIT_HANDOFF_PROMPT_FILE LIMIT_HANDOFF_RECOVER_DIR LIMIT_HANDOFF_TAIL_LINES LIMIT_HANDOFF_KEEP LIMIT_HANDOFF_FOLLOW_LINKS LIMIT_HANDOFF_CLIPBOARD LIMIT_HANDOFF_NOTIFY LIMIT_HANDOFF_STATE_DIR"
+HK_USER_ONLY_KEYS="LIMIT_HANDOFF_DEBOUNCE_SEC LIMIT_HANDOFF_FILE LIMIT_HANDOFF_PROMPT_FILE LIMIT_HANDOFF_RECOVER_DIR LIMIT_HANDOFF_TAIL_LINES LIMIT_HANDOFF_KEEP LIMIT_HANDOFF_FOLLOW_LINKS LIMIT_HANDOFF_CLIPBOARD LIMIT_HANDOFF_NOTIFY LIMIT_HANDOFF_STATE_DIR"
 
 # hk_note_ignored_project_keys: logs one warning when the project file sets user-only keys, so
 # the user can see why those values had no effect. Only the key names are logged.
@@ -524,6 +534,16 @@ hk_note_ignored_project_keys() {
   [ -n "$found" ] || return 0
   hk_log warn "the project file .claude/limit-handoff.conf sets$found. These keys are read only from the environment or your own config, so the project values are ignored."
   return 0
+}
+
+# hk_error_list: the StopFailure codes that make a handoff, as words split by spaces
+# (LIMIT_HANDOFF_ERRORS; "|", "," and tabs also split). A value with no words in it (for example
+# a single space) falls back to the default list, the same as an empty value does.
+hk_error_list() {
+  local norm
+  norm="$(hk_conf LIMIT_HANDOFF_ERRORS "$HK_DEFAULT_ERRORS" | tr '|,\t' '   ')"
+  if [ -z "$(printf '%s' "$norm" | tr -d ' ')" ]; then norm="$HK_DEFAULT_ERRORS"; fi
+  printf '%s\n' "$norm"
 }
 
 # hk_bool_conf KEY default: prints 1 or 0. Accepts 1/0, on/off, yes/no, true/false.
@@ -708,7 +728,7 @@ _hk_write_prompt_locked() {
     fi
   fi
 
-  printf '%s\n' "$text" | hk_atomic_write "$real" || return 1
+  printf '%s\n' "$text" | HK_NEW_MODE=600 hk_atomic_write "$real" || return 1
 
   if [ -n "$rec" ]; then
     mkdir -p "$rec_dir" 2>/dev/null
@@ -982,9 +1002,68 @@ hk_cutoff_block() {
   printf '<!-- /limit-handoff:cutoff -->\n'
 }
 
-# hk_has_unresolved_cutoff file: succeeds when the file has an unresolved cut-off block.
+# HK_AWK_FENCE: an awk function that every reader and writer of HANDOFF.md uses, so text inside
+# a fenced code block (``` or ~~~) is never read as a cut-off block or a heading. A user may keep
+# an example block in a fence. hk_fence(line) returns 1 for a fence line and for every line
+# inside a fence, 0 otherwise. It keeps its state in HKF (open or not) and HKFC (the fence char).
+# Rules: up to 3 leading spaces, then 3 or more ` or ~. A fence closes on a line of the same
+# char with nothing else but spaces. No regex intervals: mawk and old BSD awk lack them.
+# shellcheck disable=SC2016
+HK_AWK_FENCE='
+function hk_fence(line,   n, t, c, r) {
+  match(line, /^ */); n = RLENGTH; t = substr(line, n + 1)
+  c = substr(t, 1, 1)
+  if (n <= 3 && (substr(t, 1, 3) == "```" || substr(t, 1, 3) == "~~~")) {
+    if (!HKF) { HKF = 1; HKFC = c; return 1 }
+    if (c == HKFC) {
+      r = t
+      while (substr(r, 1, 1) == c) r = substr(r, 2)
+      gsub(/[ \t\r]/, "", r)
+      if (r == "") { HKF = 0; return 1 }
+    }
+    return 1
+  }
+  return HKF ? 1 : 0
+}
+'
+
+# hk_unfenced_view file: prints the file with every fenced line (and fence line) replaced by an
+# empty line. Line numbers stay the same. Readers that only look for markers use this view.
+hk_unfenced_view() {
+  [ -f "$1" ] || return 0
+  awk "$HK_AWK_FENCE"'{ if (hk_fence($0)) print ""; else print }' "$1" 2>/dev/null
+}
+
+# hk_cut_chars max [mark]: reads one line of text on stdin and cuts it to max characters. A
+# multi-byte UTF-8 character is never cut in half: cut -c counts bytes on GNU/Linux and in the C
+# locale, so a broken last character is removed afterwards. When text was cut and mark is given,
+# mark (for example "…") is added at the end, and the text is cut shorter by the bytes of mark,
+# so the result is never longer than max (in bytes or in characters).
+hk_cut_chars() {
+  local max="$1" mark="${2:-}" s out mb
+  s="$(cat)"
+  if [ -n "$mark" ] && [ "$(printf '%s' "$s" | cut -c1-"$max")" != "$s" ]; then
+    mb="$(printf '%s' "$mark" | wc -c | tr -d ' ')"
+    max=$((max - mb))
+  fi
+  out="$(printf '%s\n' "$s" | cut -c1-"$max" | LC_ALL=C sed \
+    -e $'s/[\xf0-\xff][\x80-\xbf][\x80-\xbf]$//' \
+    -e $'s/[\xe0-\xff][\x80-\xbf]$//' \
+    -e $'s/[\xc0-\xff]$//')"
+  if [ -n "$mark" ] && [ "$out" != "$s" ]; then out="$out$mark"; fi
+  printf '%s\n' "$out"
+}
+
+# hk_has_unresolved_cutoff file: succeeds when the file has an unresolved cut-off block
+# (outside fenced code blocks).
 hk_has_unresolved_cutoff() {
-  [ -f "$1" ] && grep -q '^<!-- limit-handoff:cutoff .*status="unresolved"' "$1"
+  [ -f "$1" ] && hk_unfenced_view "$1" | grep -q '^<!-- limit-handoff:cutoff .*status="unresolved"'
+}
+
+# hk_has_session_block file session: succeeds when the file has a cut-off block (any state) for
+# this session, outside fenced code blocks.
+hk_has_session_block() {
+  [ -f "$1" ] && hk_unfenced_view "$1" | grep -F -q "<!-- limit-handoff:cutoff session=\"$2\""
 }
 
 # hk_last_unresolved_block file: prints the newest unresolved cut-off block. Newest means the
@@ -992,7 +1071,7 @@ hk_has_unresolved_cutoff() {
 # When two blocks have the same time, the one lower in the file wins.
 hk_last_unresolved_block() {
   [ -f "$1" ] || return 0
-  awk '
+  hk_unfenced_view "$1" | awk '
     /^<!-- limit-handoff:cutoff / {
       cur = $0; inb = 1; keep = ($0 ~ /status="unresolved"/)
       at = ""
@@ -1007,7 +1086,7 @@ hk_last_unresolved_block() {
     }
     inb { cur = cur "\n" $0; next }
     END { if (have) { print best } }
-  ' "$1"
+  '
 }
 
 # hk_upsert_cutoff file session block: replaces this session's block in place,
@@ -1022,7 +1101,7 @@ hk_upsert_cutoff() {
   out="$(HK_CUT_PREFIX="<!-- limit-handoff:cutoff session=\"$sid\" " \
   HK_CUT_END="<!-- /limit-handoff:cutoff -->" \
   HK_CUT_BLOCK="$block" \
-  awk '
+  awk "$HK_AWK_FENCE"'
     BEGIN {
       st = 0; n = 0; replaced = 0
       pfx = ENVIRON["HK_CUT_PREFIX"]; endm = ENVIRON["HK_CUT_END"]; blk = ENVIRON["HK_CUT_BLOCK"]
@@ -1031,6 +1110,13 @@ hk_upsert_cutoff() {
     function flush(   i) { for (i = 1; i <= n; i++) print buf[i]; n = 0; st = 0 }
     {
       line = $0
+      # A fenced code block is copied as it is. A block of ours that is still open when a fence
+      # starts was never closed, so it is written back unchanged (flush).
+      if (hk_fence(line)) {
+        if (st == 1) flush()
+        print line
+        next
+      }
       again = 1
       while (again) {
         again = 0
@@ -1067,7 +1153,7 @@ hk_upsert_cutoff() {
 # prompt asks Claude to work out the next step instead).
 hk_first_next_step() {
   [ -f "$1" ] || return 0
-  awk '
+  hk_unfenced_view "$1" | awk '
     /^## +Next steps/ { insec = 1; next }
     insec && /^## / { insec = 0 }
     insec {
@@ -1090,7 +1176,7 @@ hk_first_next_step() {
       }
       if (pick > 0) print txt[pick]
     }
-  ' "$1" | tr -d '\001-\037\177' | cut -c1-300
+  ' | tr -d '\001-\037\177' | hk_cut_chars 300 '…'
 }
 
 # hk_block_at_human, hk_block_recovered, hk_block_error, hk_block_session: read one value out of
@@ -1297,10 +1383,11 @@ hk_recover_json() {
   if [ -z "$file" ] || [ ! -f "$file" ] || [ ! -r "$file" ]; then return 3; fi
   case "$np" in ''|*[!0-9]*) np=5 ;; esac
   tail_lines="$(hk_int_conf_trusted LIMIT_HANDOFF_TAIL_LINES 4000)"
-  # Bytes first, then lines. A single huge line cannot fill memory, because only the last
-  # HK_TAIL_BYTES are read. The first line may start in the middle of a line. That piece is not
-  # valid JSON, so the filter skips it.
-  out="$(tail -c "$HK_TAIL_BYTES" "$file" 2>/dev/null | tail -n "$tail_lines" | jq -n -R -c --argjson np "$np" -f "$HK_LIB_DIR/transcript.jq" 2>/dev/null)" || return 1
+  # Lines first, then bytes: tail -n on a file reads back from the end, so only the last lines
+  # are read (reading 32 MB first was slow). tail -c then keeps at most HK_TAIL_BYTES, so a few
+  # huge lines cannot fill memory. The first line may start in the middle of a line. That piece is
+  # not valid JSON, so the filter skips it.
+  out="$(tail -n "$tail_lines" "$file" 2>/dev/null | tail -c "$HK_TAIL_BYTES" | jq -n -R -c --argjson np "$np" -f "$HK_LIB_DIR/transcript.jq" 2>/dev/null)" || return 1
   [ -n "$out" ] || return 1
   printf '%s\n' "$out"
   return 0
@@ -1328,7 +1415,7 @@ hk_prompt_count() { hk_int_conf LIMIT_HANDOFF_PROMPTS 5; }
 # hk_git_line text max: one line of plain text from git. Control characters are removed, a
 # backtick becomes an apostrophe (so text cannot open a code span), and the text is cut to max.
 hk_git_line() {
-  printf '%s' "$1" | tr -d '\001-\037\177' | tr '`' "'" | cut -c1-"$2"
+  printf '%s' "$1" | tr -d '\001-\037\177' | tr '`' "'" | hk_cut_chars "$2"
 }
 
 # hk_redact_line text: prints text with token-shaped strings replaced by [redacted]. It uses the
@@ -1583,12 +1670,12 @@ hk_paste_text() {
   # prompt before its own block is written, and its own session is left out of the count anyway.
   local open_n
   if [ "$has_hf" = 1 ] && [ -f "$hf" ]; then
-    open_n="$(HK_PASTE_SID="${6:-}" awk '
+    open_n="$(hk_unfenced_view "$hf" | HK_PASTE_SID="${6:-}" awk '
       BEGIN { s = ENVIRON["HK_PASTE_SID"]; n = 0 }
       /^<!-- limit-handoff:cutoff / && /status="unresolved"/ {
         if (s == "" || index($0, "session=\"" s "\"") == 0) n++
       }
-      END { print n + 0 }' "$hf" 2>/dev/null)"
+      END { print n + 0 }' 2>/dev/null)"
     case "$open_n" in ''|*[!0-9]*) open_n=0 ;; esac
     if [ "$open_n" -ge 1 ]; then
       read_part="$read_part It also has unresolved cut-offs from earlier chats ($open_n): read the recovered file each one names."
@@ -1612,32 +1699,39 @@ hk_paste_text() {
 hk_final_link_ok() {
   local p="$1" real base
   [ -L "$p" ] || return 0
-  if [ "$(hk_conf_trusted LIMIT_HANDOFF_FOLLOW_LINKS 0)" = "1" ]; then return 0; fi
   real="$(hk_real_path "$p")"
   base="$(CDPATH='' cd -P "${HK_PROJECT_DIR:-$PWD}" 2>/dev/null && pwd -P)"
   if [ -n "$real" ] && [ -n "$base" ]; then
     case "$real" in
       # Git's and Claude Code's own files are inside the project, but the kit must never write
-      # its text into them (a link to .claude/settings.json would break that file).
-      "$base"/.git|"$base"/.git/*|"$base"/.claude|"$base"/.claude/*) ;;
+      # its text into them (a link to .claude/settings.json would break that file). This is
+      # refused even with LIMIT_HANDOFF_FOLLOW_LINKS=1.
+      "$base"/.git|"$base"/.git/*|"$base"/.claude|"$base"/.claude/*)
+        hk_log warn "$p is a link into .git or .claude, so it is never used"
+        return 1 ;;
       "$base"/*) return 0 ;;
     esac
   fi
+  if [ "$(hk_conf_trusted LIMIT_HANDOFF_FOLLOW_LINKS 0)" = "1" ]; then return 0; fi
   hk_log warn "$p is a link to a place outside the project (or into .git or .claude), so it is not used (LIMIT_HANDOFF_FOLLOW_LINKS=1 in your own settings allows it)"
   return 1
 }
 
 # hk_ensure_recover_gitignore dir [made]: creates dir/.gitignore so the recovered chat text stays out of git.
-# The file has exactly two lines: a comment and "*". It is written only when the folder has no
-# entry with that name at all (a link counts too), so an existing .gitignore is never changed.
-# A folder that holds anything other than kit files (recovered-*.md and LATEST.md) is the user's
-# own folder, so no "*" rule is written there. An empty folder gets the rule only when the kit
-# just made it (made=1) or it has the default name .handoff: an empty folder the user made for
-# something else must not hide their future files. No lock is taken here: two hooks that race
-# write the same two lines, and a lock could be nested inside another lock.
-# Returns non-zero when the file is not written.
+# It is written only when the folder has no entry with that name at all (a link counts too), so
+# an existing .gitignore is never changed.
+#   - A folder the kit owns gets two lines: a comment and "*". The kit owns it when it holds only
+#     kit files (recovered-*.md and LATEST.md), or when it is empty and the kit just made it
+#     (made=1) or it has the default name .handoff.
+#   - Any other folder is the user's own (it holds their files, or it is an empty folder they made).
+#     "*" would hide their files, so it gets rules that name only the kit's files instead:
+#     the comment, "recovered-*.md", "LATEST.md" and ".gitignore". So the chat text still stays out
+#     of git (README: ".handoff/ is kept out of git automatically").
+# No lock is taken here: two hooks that race write the same lines, and a lock could be nested
+# inside another lock. Returns non-zero when the file is not written.
 hk_ensure_recover_gitignore() {
-  local gi="$1/.gitignore" made="${2:-0}" f base kit=0
+  local gi="$1/.gitignore" made="${2:-0}" f base kit=0 user=0
+  local head="# Created by limit-handoff: recovered chat text stays out of git."
   if [ -e "$gi" ] || [ -L "$gi" ]; then
     return 0
   fi
@@ -1647,14 +1741,14 @@ hk_ensure_recover_gitignore() {
     base="${f##*/}"
     case "$base" in
       recovered-*.md|LATEST.md) kit=1 ;;
-      *) return 1 ;;
+      *) user=1 ;;
     esac
   done
-  if [ "$kit" = 0 ] && [ "$made" != 1 ] && [ "${1##*/}" != ".handoff" ]; then
-    return 1
+  if [ "$user" = 0 ] && { [ "$kit" = 1 ] || [ "$made" = 1 ] || [ "${1##*/}" = ".handoff" ]; }; then
+    printf '%s\n%s\n' "$head" "*" | hk_atomic_write "$gi"
+    return $?
   fi
-  printf '%s\n%s\n' "# Created by limit-handoff: recovered chat text stays out of git." "*" \
-    | hk_atomic_write "$gi"
+  printf '%s\n%s\n%s\n%s\n' "$head" "recovered-*.md" "LATEST.md" ".gitignore" | hk_atomic_write "$gi"
 }
 
 # hk_prune_recovered dir keep [keep_name]: deletes the oldest recovered files in dir so that at
@@ -1727,10 +1821,10 @@ hk_store_recovered() {
     if ! hk_final_link_ok "$dir/$name"; then return 1; fi
     hk_ensure_recover_gitignore "$dir" "$made" 2>/dev/null
   fi
-  printf '%s\n' "$md" | hk_atomic_write "$dir/$name" || return 1
+  printf '%s\n' "$md" | HK_NEW_MODE=600 hk_atomic_write "$dir/$name" || return 1
   if [ "$latest" = 1 ]; then
     if [ "$in_project" != 1 ] || hk_final_link_ok "$dir/LATEST.md"; then
-      printf '%s\n' "$md" | hk_atomic_write "$dir/LATEST.md" 2>/dev/null
+      printf '%s\n' "$md" | HK_NEW_MODE=600 hk_atomic_write "$dir/LATEST.md" 2>/dev/null
     fi
   fi
   return 0
@@ -1816,6 +1910,15 @@ hk_handled_path() {
   printf '%s/handled/%s\n' "$(hk_state_dir)" "$1"
 }
 
+# hk_debounce_sec: LIMIT_HANDOFF_DEBOUNCE_SEC (default 120), from the environment or the user's own
+# config only (a project file could use a huge value to silence every later handoff). At most 3600.
+hk_debounce_sec() {
+  local d
+  d="$(hk_int_conf_trusted LIMIT_HANDOFF_DEBOUNCE_SEC 120)"
+  if [ "${#d}" -gt 4 ] || [ "$d" -gt 3600 ]; then d=3600; fi
+  printf '%s\n' "$d"
+}
+
 # hk_claim_stop key: records that a StopFailure for this chat is being handled now.
 # Returns 1 when a StopFailure for the same chat was handled less than LIMIT_HANDOFF_DEBOUNCE_SEC
 # seconds ago (a duplicate). Returns 0 otherwise, and writes the current time into the marker.
@@ -1823,8 +1926,7 @@ hk_handled_path() {
 hk_claim_stop() {
   local key="$1" marker deb now old age rc=0
   marker="$(hk_handled_path "$key")"
-  deb="$(hk_int_conf LIMIT_HANDOFF_DEBOUNCE_SEC 120)"
-  if [ "${#deb}" -gt 9 ]; then deb=999999999; fi
+  deb="$(hk_debounce_sec)"
   now="$(date +%s)"
   mkdir -p "$(dirname "$marker")" 2>/dev/null
   hk_lock_take "$marker"
@@ -1859,7 +1961,7 @@ hk_handled_state() {
   if [ -e "$(hk_handled_done_path "$key")" ]; then printf 'done\n'; return 0; fi
   started="$(hk_handled_path "$key")"
   if [ ! -e "$started" ]; then printf 'none\n'; return 0; fi
-  deb="$(hk_int_conf LIMIT_HANDOFF_DEBOUNCE_SEC 120)"
+  deb="$(hk_debounce_sec)"
   now="$(date +%s)"
   m="$(hk_file_mtime "$started")" || m=0
   if [ $((now - m)) -lt "$deb" ]; then printf 'busy\n'; else printf 'stale\n'; fi
@@ -1911,7 +2013,7 @@ hk_limit_at() {
 # hk_unresolved_count file: how many unresolved cut-off blocks the file has.
 hk_unresolved_count() {
   if [ ! -f "$1" ]; then printf '0\n'; return 0; fi
-  grep -c '^<!-- limit-handoff:cutoff .*status="unresolved"' "$1" 2>/dev/null || true
+  hk_unfenced_view "$1" | grep -c '^<!-- limit-handoff:cutoff .*status="unresolved"' 2>/dev/null || true
 }
 
 # hk_unresolved_recovered_names file: the file names of the recovered files that unresolved
@@ -1944,8 +2046,8 @@ hk_cutoff_message() {
   sid="$(hk_block_session "$block")"
   if [ "${n:-0}" -gt 1 ]; then
     # The session ids of all unresolved blocks. Only safe ids are shown (letters, digits, _ and -).
-    ids="$(awk '/^<!-- limit-handoff:cutoff / && /status="unresolved"/ {
-        if (match($0, /session="[^"]*"/)) print substr($0, RSTART + 9, RLENGTH - 10) }' "$hf" \
+    ids="$(hk_unfenced_view "$hf" | awk '/^<!-- limit-handoff:cutoff / && /status="unresolved"/ {
+        if (match($0, /session="[^"]*"/)) print substr($0, RSTART + 9, RLENGTH - 10) }' \
       | grep -E '^[A-Za-z0-9_-]{1,80}$' | awk '!seen[$0]++' | head -n 10 | tr '\n' ' ' | sed 's/ $//; s/ /, /g')"
     printf '%s chats were cut off (sessions: %s). The newest is session %s (%s, %s). %s, check for a half-finished step, then run `%s resolve --session <id>` for each chat once it is recovered.' \
       "$n" "${ids:-unknown}" "$sid" "${at:-time unknown}" "$reason" "$read_text" "$(hk_cli_hint)"
@@ -1962,8 +2064,8 @@ hk_cutoff_message() {
 # prompt_too_long.
 hk_last_limit_code() {
   local file="$1" norm="$2" proj="$3" projp="$4" out code re='^[a-z_]{1,40}$'
-  # Bytes first, then lines, as in hk_recover_json: one huge line cannot fill memory.
-  out="$(tail -c "$HK_TAIL_BYTES" "$file" 2>/dev/null | tail -n 300 | jq -n -R -c \
+  # Lines first, then bytes, as in hk_recover_json: huge lines cannot fill memory.
+  out="$(tail -n 300 "$file" 2>/dev/null | tail -c "$HK_TAIL_BYTES" | jq -n -R -c \
     --arg allowed "$norm" --arg proj "$proj" --arg projp "$projp" \
     -f "$HK_LIB_DIR/lastturn.jq" 2>/dev/null)" || return 0
   code="$(printf '%s' "$out" | jq -r '.code // empty | if type == "string" then . else empty end' 2>/dev/null)"
@@ -1995,7 +2097,7 @@ hk_last_limit_code() {
 # It never fails. Session-start goes on either way.
 hk_catchup() {
   local src dir cur_name hours mins hf projp norm allowed listing f name sid key code payload n m
-  local re='^[A-Za-z0-9_-]{1,80}$' start chosen state left
+  local re='^[A-Za-z0-9_-]{1,80}$' start chosen left sd deb now have stfmt stspec c sm
   src="${HK_SOURCE:-}"
   case "$src" in
     ''|startup|resume|clear) ;;
@@ -2016,31 +2118,53 @@ hk_catchup() {
   # hk_atomic_write needs the folder to exist, so the marker folders are made first.
   mkdir -p "$(hk_state_dir)/checked" "$(hk_state_dir)/handled" 2>/dev/null
 
+  # Values read once, not once per file: a busy project can have hundreds of recent chats, and
+  # the session start has a 20 second budget (stress test M3: 1000 chats took 25 s before).
+  sd="$(hk_state_dir)"
+  deb="$(hk_debounce_sec)"
+  now="$(date +%s)"
+  # The session ids that already have a block in HANDOFF.md (any state, outside code fences).
+  have=""
+  if [ -f "$hf" ]; then
+    have="$(hk_unfenced_view "$hf" | sed -n 's/^<!-- limit-handoff:cutoff session="\([A-Za-z0-9_-]*\)".*/\1/p')"
+  fi
+  have=$'\n'"$have"$'\n'
+  # One stat call gives the times of all files: BSD stat on macOS, GNU stat on Linux.
+  if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then stfmt="-f"; stspec='%m %N'; else stfmt="-c"; stspec='%Y %n'; fi
+
   # Candidates, as "mtime session" lines, newest first. find keeps only plain files (no links)
-  # that are inside the window. A name that is not a safe session id is skipped.
+  # that are inside the window. A name that is not a safe session id is skipped. The checks below
+  # are plain file tests (no subshell per file), so a long list stays fast.
   listing="$(find "$dir" -maxdepth 1 -type f -name '*.jsonl' -mmin "-$mins" -print0 2>/dev/null \
-    | while IFS= read -r -d '' f; do
+    | xargs -0 stat "$stfmt" "$stspec" 2>/dev/null \
+    | while read -r m f; do
+        if [ $((SECONDS - start)) -ge 8 ]; then break; fi
+        [[ "$m" =~ ^[0-9]+$ ]] || continue
         name="${f##*/}"
         sid="${name%.jsonl}"
         [[ "$sid" =~ $re ]] || continue
         if [ "$src" != "resume" ] && [ "$name" = "$cur_name" ]; then continue; fi
-        key="$(hk_clean_token "$sid")"
-        # Plain "if" here: a case pattern with ")" inside $( ) confuses bash 3.2.
-        state="$(hk_handled_state "$key")"
-        if [ "$state" = "done" ] || [ "$state" = "busy" ]; then continue; fi
+        # The same key as hk_clean_token: the id is already only safe characters, so it is cut to 40.
+        key="${sid:0:40}"
+        # Done: the handoff is saved. Busy: a StopFailure for it started less than the debounce ago.
+        if [ -e "$sd/handled/$key.done" ]; then continue; fi
+        if [ -e "$sd/handled/$key" ]; then
+          sm="$(hk_file_mtime "$sd/handled/$key")" || sm=0
+          if [ $((now - sm)) -lt "$deb" ]; then continue; fi
+        fi
         # Its block is already in HANDOFF.md (in any state): the handoff exists. The done marker is
         # put back (the state folder may have been reset). It does not affect the debounce.
-        if [ -f "$hf" ] && grep -F -q "limit-handoff:cutoff session=\"$key\"" "$hf"; then
+        if [[ "$have" == *$'\n'"$key"$'\n'* ]]; then
           hk_mark_done "$key"
           continue
         fi
-        m="$(hk_file_mtime "$f")" || continue
-        if [ "$(cat "$(hk_checked_path "$key")" 2>/dev/null)" = "$m" ]; then continue; fi
+        c=""
+        if [ -f "$sd/checked/$key" ]; then read -r c < "$sd/checked/$key"; fi
+        if [ "$c" = "$m" ]; then continue; fi
         printf '%s %s\n' "$m" "$sid"
       done | sort -rn)"
 
-  allowed="$(hk_conf LIMIT_HANDOFF_ERRORS "$HK_DEFAULT_ERRORS")"
-  norm=" $(printf '%s' "$allowed" | tr '|,\t' '   ') "
+  norm=" $(hk_error_list) "
   projp="$(CDPATH='' cd -P "$HK_PROJECT_DIR" 2>/dev/null && pwd -P)"
   n=0
   chosen=""
@@ -2079,7 +2203,7 @@ hk_catchup() {
     if [ -z "$payload" ]; then continue; fi
     printf '%s\n' "$payload" | LIMIT_HANDOFF_CATCHUP_RUN=1 /bin/bash "$HK_ROOT/hooks/stop-failure.sh" >/dev/null 2>&1
     # Print the line only when the block for this chat is really in HANDOFF.md.
-    if [ -f "$hf" ] && grep -F -q "limit-handoff:cutoff session=\"$key\"" "$hf"; then
+    if hk_has_session_block "$hf" "$key"; then
       if [ "$code" = "rate_limit" ]; then
         printf 'limit-handoff wrote a handoff for the previous chat (%s). It hit a rate or usage limit and had no handoff.\n' \
           "$(printf '%s' "$key" | cut -c1-8)"

@@ -157,7 +157,7 @@ test_fsmonitor_program_in_repo_config_is_not_run() {
   gt_repo_with_one_commit "$d"
   printf '#!/bin/sh\ntouch "%s/ran-fsmonitor"\nexit 0\n' "$TL_TMP" > "$TL_TMP/fsmonitor.sh"
   chmod +x "$TL_TMP/fsmonitor.sh"
-  git -C "$d" config core.fsmonitor "$TL_TMP/fsmonitor.sh" </dev/null || fail "could not set core.fsmonitor"
+  git -C "$d" config core.fsmonitor "$(tl_shq "$TL_TMP/fsmonitor.sh")" </dev/null || fail "could not set core.fsmonitor"
   printf 'hello\nmore\n' > "$d/README.txt"
   # Control: plain git runs the program, so the marker proves the check can see a run.
   git -C "$d" status --porcelain=v1 </dev/null >/dev/null 2>&1
@@ -179,7 +179,7 @@ test_filter_driver_in_repo_config_is_not_run() {
   gt_commit "$d" "add attributes"
   printf '#!/bin/sh\ntouch "%s/ran-filter"\ncat\n' "$TL_TMP" > "$TL_TMP/filter.sh"
   chmod +x "$TL_TMP/filter.sh"
-  git -C "$d" config filter.evil.clean "$TL_TMP/filter.sh" </dev/null || fail "could not set the filter"
+  git -C "$d" config filter.evil.clean "$(tl_shq "$TL_TMP/filter.sh")" </dev/null || fail "could not set the filter"
   printf 'changed\n' >> "$d/tracked.txt"
   # Control: plain git diff runs the clean filter, so the marker proves the check can see a run.
   git -C "$d" diff --stat HEAD </dev/null >/dev/null 2>&1
@@ -201,7 +201,7 @@ test_textconv_and_external_diff_in_repo_config_are_not_run() {
   gt_commit "$d" "add attributes"
   printf '#!/bin/sh\ntouch "%s/ran-textconv"\ncat "$1"\n' "$TL_TMP" > "$TL_TMP/textconv.sh"
   chmod +x "$TL_TMP/textconv.sh"
-  git -C "$d" config diff.evil.textconv "$TL_TMP/textconv.sh" </dev/null || fail "could not set textconv"
+  git -C "$d" config diff.evil.textconv "$(tl_shq "$TL_TMP/textconv.sh")" </dev/null || fail "could not set textconv"
   printf 'changed\n' >> "$d/tracked.txt"
   # Control: a plain patch diff runs the textconv program.
   git -C "$d" diff HEAD </dev/null >/dev/null 2>&1
@@ -209,7 +209,7 @@ test_textconv_and_external_diff_in_repo_config_are_not_run() {
   rm -f "$TL_TMP/ran-textconv"
   printf '#!/bin/sh\ntouch "%s/ran-external"\nexit 0\n' "$TL_TMP" > "$TL_TMP/external.sh"
   chmod +x "$TL_TMP/external.sh"
-  git -C "$d" config diff.external "$TL_TMP/external.sh" </dev/null || fail "could not set diff.external"
+  git -C "$d" config diff.external "$(tl_shq "$TL_TMP/external.sh")" </dev/null || fail "could not set diff.external"
   # Control: with an external diff set, a plain patch diff runs that program.
   git -C "$d" diff HEAD </dev/null >/dev/null 2>&1
   assert_file_exists "$TL_TMP/ran-external" "control: plain git diff should run the external diff program"

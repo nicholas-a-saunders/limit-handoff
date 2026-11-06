@@ -5,6 +5,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-06
+
+### Fixes from a stress test
+
+- **More secrets are hidden** in the recovered file: `--password X`, `mysql -pX`, `sshpass -p X`, upper-case variables that end in `PASS`, `SECRET`, `TOKEN` or `_KEY` (`DB_PASS=...`), `X-API-Key:` and `Authorization: Basic` headers, and Twilio, Mailgun and SendGrid keys.
+- **Chat text stays out of git when `.handoff/` holds your own files.** That folder used to get no `.gitignore` at all. It now gets rules that name only the kit's files (`recovered-*.md`, `LATEST.md`), so your own files are not hidden.
+- **Session start stays fast with many recent chats.** Catch-up checked every recent chat with several subshells each: 1000 chats took about 25 s, past the 20 s hook limit. It now reads shared values once and gets all file times in one call (0.4 s for 1000 chats).
+- **Text in a chat cannot fake a cut-off block.** A created `HANDOFF.md` escapes `<` in text from the transcript, so a prompt such as `<!-- limit-handoff:cutoff ... -->` stays plain text.
+- **Cut-off blocks inside fenced code blocks are ignored.** An example block in a ``` fence no longer triggers the reminder on every message, and a stop no longer rewrites it.
+- **Non-English text is never cut in half.** The next step, git lines and log lines were cut by bytes on Linux and in the C locale, which could leave broken UTF-8 in the paste prompt. A cut next step now ends with `…`.
+- **A long token no longer deletes the rest of a prompt.** A run of 200 or more token characters becomes `[redacted]` and the text after it is kept.
+- **Subagent turns are not shown as yours.** Prompts and replies from subagents (`isSidechain`) are left out of "last things you asked" and "last reply". Their file edits and commands still count.
+- **Faster on big transcripts.** The last lines are read first, and the secret patterns run only on the items that are kept: a 50 MB transcript takes about 0.9 s instead of 3.3 s, with the same result.
+- **`LIMIT_HANDOFF_FOLLOW_LINKS=1` never writes into `.git` or `.claude`.**
+- **The command line tool:** `install --settings -x.json` works; `--errors '*'` is refused instead of matching file names; `resolve` refuses a read-only `HANDOFF.md`; `simulate` counts a paste prompt saved in the state folder.
+- **Configuration:** a project file can no longer set `LIMIT_HANDOFF_DEBOUNCE_SEC` (now at most 3600); a project config over 64 KB is skipped; a blank `LIMIT_HANDOFF_ERRORS` uses the default list; a line with half an emoji escape (`\ud83d`) is read instead of dropped.
+- **Private files.** New `PASTE-PROMPT.txt`, recovered files, `LATEST.md` and the log are made with mode 600, and a new state folder with 700.
+- **Tests pass in a folder whose name has a space.** 22 new tests in `tests/test_stress_fixes.sh`; 21 of them fail on the 1.0.1 code.
+
 ## [1.0.1] - 2026-11-04
 
 ### Fixes from a full test of the public release
@@ -63,6 +82,7 @@ These came from testing the repository the way a new user would, before the firs
 - **README.** The pitch is about carrying on in a new chat, with a "What it does not do" line (no limit is changed or bypassed; use each account within Anthropic's terms); why a second account is needed (the limit is per account); paste is the main way and "carry on" the fallback; Claude usually, not always, marks the handoff as done; `limit-handoff` runs inside a Claude chat, not in your own Terminal (full path given); "Remove it" no longer says to delete your own `HANDOFF.md`; the state folder, the created goal, the token cost and the subagent and debounce limits are described as they are.
 - **SECURITY.md.** The next-step line from `HANDOFF.md` is named as the one text a project file can show to Claude.
 
-[Unreleased]: https://github.com/nicholas-a-saunders/limit-handoff/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/nicholas-a-saunders/limit-handoff/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/nicholas-a-saunders/limit-handoff/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/nicholas-a-saunders/limit-handoff/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/nicholas-a-saunders/limit-handoff/releases/tag/v1.0.0

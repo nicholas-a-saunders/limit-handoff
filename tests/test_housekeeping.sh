@@ -132,7 +132,9 @@ test_thirty_five_old_files_leave_the_thirty_newest() {
   assert_file_contains "$d/notes.md" "user notes" "notes.md is untouched"
   assert_file_contains "$d/recovered-notes.md" "not a stamp" "a name without a stamp is untouched"
   assert_file_exists "$d/LATEST.md" "LATEST.md is kept"
-  assert_file_missing "$d/.gitignore" "no * rule in a folder that holds the user's own notes (batch C #29)"
+  assert_file_exists "$d/.gitignore" "user notes folder (batch C #29, stress test M2): the folder gets a .gitignore that names only the kit's files"
+  assert_file_contains "$d/.gitignore" "recovered-*.md" "user notes folder (batch C #29, stress test M2): recovered chat text stays out of git"
+  if grep -qx '\*' "$d/.gitignore"; then fail "user notes folder (batch C #29, stress test M2): no * rule, it would hide the user's own files"; fi
   [ -L "$d/recovered-20200101-000000-linkone.md" ] || fail "a link with a recovered name must be left alone"
   assert_file_contains "$TL_TMP/outside.md" "outside" "the target of that link must not be deleted"
   assert_file_contains "$LIMIT_HANDOFF_STATE_DIR/limit-handoff.log" "removed 6 old recovered file(s)" "the log says how many were removed"

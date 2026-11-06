@@ -441,13 +441,15 @@ test_c2_project_config_cannot_set_keep_or_tail_lines() {
   assert_eq "7" "$(hk_int_conf LIMIT_HANDOFF_STALE_MIN 20)" "an ordinary setting still reads the project file"
 }
 
-test_c2_recover_folder_with_user_files_gets_no_gitignore() {
+test_c2_recover_folder_with_user_files_gets_named_rules_only() {
   local p="$CLAUDE_PROJECT_DIR"
   mkdir -p "$p/.handoff"
   printf '%s\n' 'my own notes' > "$p/.handoff/notes.txt"
   tl_run "$TL_HOOK_STOP" "$(tl_payload_stop "c2-gi" "$(tl_fixture basic.jsonl)" "$p" "rate_limit")"
   assert_exit 0 "$TL_RC"
-  assert_file_missing "$p/.handoff/.gitignore" "a folder with the user's own files must not get a * rule (batch C #29)"
+  assert_file_exists "$p/.handoff/.gitignore" "folder with the user's files (batch C #29): the folder gets a .gitignore that names only the kit's files"
+  assert_file_contains "$p/.handoff/.gitignore" "recovered-*.md" "folder with the user's files (batch C #29): recovered chat text stays out of git"
+  if grep -qx '\*' "$p/.handoff/.gitignore"; then fail "folder with the user's files (batch C #29): no * rule, it would hide the user's own files"; fi
   assert_file_exists "$p/.handoff/notes.txt" "the user's file must be kept"
 }
 
@@ -488,7 +490,9 @@ test_c30_next_step_is_one_short_clean_line() {
   long="$(printf 'a%.0s' $(seq 1 400))"
   printf '%s\n' '## Next steps (in order)' "1. $long" > "$TL_TMP/hf-long.md"
   out="$(hk_first_next_step "$TL_TMP/hf-long.md")"
-  assert_eq "300" "${#out}" "the next step is cut to 300 characters (batch C #30)"
+  # 1.0.2: a cut next step ends with "…" and is still at most 300 characters long.
+  [ "${#out}" -le 300 ] && [ "${#out}" -ge 298 ] || fail "the next step is cut to 300 characters (batch C #30), got ${#out}"
+  assert_contains "$out" "…" "a cut next step ends with an ellipsis"
   printf '%s\n' '## Next steps (in order)' "1. first$(printf '\001')bad" > "$TL_TMP/hf-ctrl.md"
   out="$(hk_first_next_step "$TL_TMP/hf-ctrl.md")"
   assert_eq "firstbad" "$out" "control characters are removed from the next step (batch C #30)"
@@ -1125,13 +1129,15 @@ test_v12_a_handoff_link_into_dot_claude_is_not_written() {
   assert_same_file "$TL_TMP/settings.before" "$p/.claude/settings.json" "a HANDOFF.md link into .claude must not be written (#28)"
 }
 
-test_v13_an_empty_folder_the_user_made_gets_no_gitignore() {
+test_v13_an_empty_folder_the_user_made_gets_named_rules_only() {
   local p="$CLAUDE_PROJECT_DIR"
   export LIMIT_HANDOFF_RECOVER_DIR=notes
   mkdir -p "$p/notes"
   tl_run "$TL_HOOK_STOP" "$(tl_payload_stop "v13-empty" "$(tl_fixture basic.jsonl)" "$p" "rate_limit")"
   assert_exit 0 "$TL_RC"
-  assert_file_missing "$p/notes/.gitignore" "an empty folder the user made must not get a * rule (#32)"
+  assert_file_exists "$p/notes/.gitignore" "empty folder the user made (#32): the folder gets a .gitignore that names only the kit's files"
+  assert_file_contains "$p/notes/.gitignore" "recovered-*.md" "empty folder the user made (#32): recovered chat text stays out of git"
+  if grep -qx '\*' "$p/notes/.gitignore"; then fail "empty folder the user made (#32): no * rule, it would hide the user's own files"; fi
 }
 
 test_v13_a_dot_dot_name_counts_as_a_user_file() {
@@ -1139,11 +1145,14 @@ test_v13_a_dot_dot_name_counts_as_a_user_file() {
   mkdir -p "$p/.handoff"
   printf 'x\n' > "$p/.handoff/..notes"
   tl_run "$TL_HOOK_STOP" "$(tl_payload_stop "v13-dots" "$(tl_fixture basic.jsonl)" "$p" "rate_limit")"
-  assert_file_missing "$p/.handoff/.gitignore" "a ..name file is the user's (#32)"
+  assert_file_exists "$p/.handoff/.gitignore" "a ..name file is the user's (#32): the folder gets a .gitignore that names only the kit's files"
+  assert_file_contains "$p/.handoff/.gitignore" "recovered-*.md" "a ..name file is the user's (#32): recovered chat text stays out of git"
+  if grep -qx '\*' "$p/.handoff/.gitignore"; then fail "a ..name file is the user's (#32): no * rule, it would hide the user's own files"; fi
 }
 
 test_v14_catchup_read_is_bounded_in_bytes() {
-  grep -q 'tail -c "\$HK_TAIL_BYTES" "\$file" 2>/dev/null | tail -n 300' "$TL_ROOT/lib/common.sh" \
+  # 1.0.2 reads the last lines first, then keeps at most HK_TAIL_BYTES (faster, still bounded).
+  grep -q 'tail -n 300 "\$file" 2>/dev/null | tail -c "\$HK_TAIL_BYTES"' "$TL_ROOT/lib/common.sh" \
     || fail "hk_last_limit_code must read a byte-bounded tail (#34)"
 }
 

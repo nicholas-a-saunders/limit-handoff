@@ -89,7 +89,7 @@ test_hint_is_the_full_path_when_the_plugin_root_is_another_folder() {
   unresolved_handoff
   tl_run "$TL_HOOK_PROMPT" "$(tl_payload_plain UserPromptSubmit "h4" "$CLAUDE_PROJECT_DIR" "")"
   assert_exit 0 "$TL_RC"
-  assert_contains "$TL_OUT" "run \`$TL_ROOT/bin/limit-handoff resolve\`" "no quotes when there is no space"
+  assert_contains "$TL_OUT" "run \`$(tl_hint_path "$TL_ROOT/bin/limit-handoff") resolve\`" "no quotes when there is no space (quoted when the repo folder has one)"
 }
 
 test_hint_counts_a_symlinked_plugin_root_as_the_same_folder() {
@@ -106,7 +106,7 @@ test_cli_hint_function_direct_cases() {
   CLAUDE_PLUGIN_ROOT="$TL_ROOT"
   assert_eq "limit-handoff" "$(hk_cli_hint)" "same folder as the plugin root"
   unset CLAUDE_PLUGIN_ROOT
-  assert_eq "$TL_ROOT/bin/limit-handoff" "$(hk_cli_hint)" "no plugin root gives the full path"
+  assert_eq "$(tl_hint_path "$TL_ROOT/bin/limit-handoff")" "$(hk_cli_hint)" "no plugin root gives the full path"
 }
 
 test_cli_hint_escapes_a_single_quote_in_the_path() {

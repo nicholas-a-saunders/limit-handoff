@@ -51,8 +51,7 @@ hk_stop_failure_main() {
   # SPEC: only a non-empty error code that is not in the list is skipped.
   # A missing error code is handled as "unknown" (docs/DECISIONS.md #3).
   elif [ -n "$raw" ]; then
-    allowed="$(hk_conf LIMIT_HANDOFF_ERRORS "$HK_DEFAULT_ERRORS")"
-    norm=" $(printf '%s' "$allowed" | tr '|,\t' '   ') "
+    norm=" $(hk_error_list) "
     case "$norm" in
       *" $err "*) ;;
       *)
@@ -241,8 +240,8 @@ hk_stop_failure_main() {
 # recovered is the recovered file's path; empty means none was written, so none is pointed to.
 # Builds HANDOFF.md from the recovered JSON when it does not exist yet.
 # Text that came from the transcript is put in as plain text: line breaks in the goal are
-# joined, and every "#" is escaped (\#). So a prompt can never start a heading such as
-# "## Next steps" in the new file.
+# joined, and every "#" and "<" is escaped (\# and \<). So a prompt can never start a heading
+# such as "## Next steps", or a cut-off marker ("<!-- limit-handoff:cutoff ..."), in the new file.
 hk_create_handoff() {
   local file="$1" json="$2" reason="$3" block="$4" paste="$5" when="${6:-}" rec="${7:-}"
   local goal done_list next status name body recent first
@@ -259,21 +258,21 @@ hk_create_handoff() {
   fi
 
   goal="$(printf '%s' "$json" | jq -r '
-    def md1: gsub("\n"; " ") | gsub("#"; "\\#");
+    def md1: gsub("\n"; " ") | gsub("#"; "\\#") | gsub("<"; "\\<");
     (.first_prompt // "(The first request was not found in the recent transcript. Ask the user for the goal.)") | md1' 2>/dev/null)"
   [ -n "$goal" ] || goal="(The first request was not found in the recent transcript. Ask the user for the goal.)"
 
   status="cut off ($reason) at $when — auto-created by limit-handoff from the transcript; verify before trusting. Made from chat text by limit-handoff. Check it before you commit it."
 
   done_list="$(printf '%s' "$json" | jq -r '
-    def md1: gsub("\n"; " ") | gsub("#"; "\\#");
+    def md1: gsub("\n"; " ") | gsub("#"; "\\#") | gsub("<"; "\\<");
     ([ (.tasks // [])[] | select(.status == "completed") | "- Done: " + ((.content // "") | md1) ]
      + [ (.files_touched // [])[] | "- Changed file: `" + . + "`" ])
     | if length == 0 then ["- Nothing was recorded in the recent transcript."] else . end
     | join("\n")' 2>/dev/null)"
 
   next="$(printf '%s' "$json" | jq -r --arg first "$first" '
-    def md1: gsub("\n"; " ") | gsub("#"; "\\#");
+    def md1: gsub("\n"; " ") | gsub("#"; "\\#") | gsub("<"; "\\<");
     ((.tasks // []) | ([.[] | select(.status == "in_progress")] + [.[] | select(.status == "pending")]))
     | if length == 0 then [$first]
       else to_entries | map((.key + 1 | tostring) + ". " + ((.value.content // "") | md1)) end
