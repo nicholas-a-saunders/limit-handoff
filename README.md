@@ -213,7 +213,7 @@ limit-handoff resolve --session <id>       # one chat, when several were cut off
 
 **What it runs:** nothing it reads. Transcript text, `HANDOFF.md` and config files are treated as plain text. Clipboard and notification tools are the standard ones (`pbcopy`, `wl-copy`, `xclip`, `xsel`, `clip.exe` (under WSL), `osascript`, `notify-send`, `terminal-notifier`).
 
-**Cloned repositories cannot steer it.** A repository you clone may ship its own `.claude/limit-handoff.conf`, but these keys are read only from the environment or your user config, never from the project file: `LIMIT_HANDOFF_FILE`, `_PROMPT_FILE`, `_RECOVER_DIR`, `_TAIL_LINES`, `_KEEP`, `_FOLLOW_LINKS`, `_CLIPBOARD`, `_NOTIFY`, `_STATE_DIR`. A `HANDOFF.md`, `PASTE-PROMPT.txt`, `LATEST.md` or recovered file that is a symbolic link out of the project, or into `.git` or `.claude`, is not read or written. If you keep `HANDOFF.md` as a link on purpose (for example into a dotfiles folder), set `LIMIT_HANDOFF_FOLLOW_LINKS=1` in your own config.
+**Cloned repositories cannot steer it.** A repository you clone may ship its own `.claude/limit-handoff.conf`, but these keys are read only from the environment or your user config, never from the project file: `LIMIT_HANDOFF_FILE`, `_PROMPT_FILE`, `_RECOVER_DIR`, `_TAIL_LINES`, `_KEEP`, `_FOLLOW_LINKS`, `_CLIPBOARD`, `_NOTIFY`, `_STATE_DIR`, `_DEBOUNCE_SEC`. A project config file over 64 KB is not read at all. A `HANDOFF.md`, `PASTE-PROMPT.txt`, `LATEST.md` or recovered file that is a symbolic link out of the project, or into `.git` or `.claude`, is not read or written. If you keep `HANDOFF.md` as a link on purpose (for example into a dotfiles folder), set `LIMIT_HANDOFF_FOLLOW_LINKS=1` in your own config. Links into `.git` or `.claude` stay refused even then.
 
 **Less private text on disk.** Recovered text has control characters, direction marks and backticks removed from paths and commands. Secret-shaped text is replaced with `[redacted]`, in chat text and in the git commit line: private key blocks; API keys and tokens in their usual shapes (Anthropic and OpenAI `sk-`, Stripe, GitHub, Google, npm, AWS, Slack, JWTs); the password in a URL like `postgres://user:PASSWORD@host`; the value after a secret-like name (`password=`, `"api_key": "…"`, `TOKEN=`); the token after `Bearer`; and long hex or base64 runs (an AWS secret key, a line of a key file). This is a safety net, not a guarantee: a secret in an unusual shape can still show, so check the files before you share them. A `HANDOFF.md` that the kit creates does not copy your recent messages; they stay in the recovered file. Its goal is the first request in the part of the chat that is read, with token-shaped strings hidden.
 
@@ -268,7 +268,7 @@ Keys marked **user only** are never read from the project file.
 | `LIMIT_HANDOFF_GIT` | `1` | Add the git section to recovered files. |
 | `LIMIT_HANDOFF_CATCHUP` | `1` | At a new chat, write a missing handoff for a recent chat that ended on a limit. |
 | `LIMIT_HANDOFF_CATCHUP_HOURS` | `48` | How far back the catch-up looks (it reads at most 3 chats and stops starting new ones after 10 s). |
-| `LIMIT_HANDOFF_DEBOUNCE_SEC` | `120` | Ignore a repeat StopFailure for the same chat within this many seconds. |
+| `LIMIT_HANDOFF_DEBOUNCE_SEC` | `120` | **User only.** Ignore a repeat StopFailure for the same chat within this many seconds (at most 3600). |
 | `LIMIT_HANDOFF_REMIND` | `stale` | When the "read HANDOFF.md" reminder shows: `always`, `stale` or `off`. |
 | `LIMIT_HANDOFF_STALE_MIN` | `20` | Minutes before `HANDOFF.md` counts as stale. |
 | `LIMIT_HANDOFF_CLIPBOARD` | `auto` | **User only.** `auto`, `off`, or a bare command name on your PATH such as `pbcopy` (paths are refused). |
@@ -278,7 +278,7 @@ Keys marked **user only** are never read from the project file.
 | `LIMIT_HANDOFF_RECOVER_DIR` | `.handoff` | **User only.** Folder for recovered files, inside the project. |
 | `LIMIT_HANDOFF_TAIL_LINES` | `4000` | **User only.** How many transcript lines to read from the end. |
 | `LIMIT_HANDOFF_KEEP` | `30` | **User only.** Recovered files to keep; `0` keeps all. |
-| `LIMIT_HANDOFF_FOLLOW_LINKS` | `0` | **User only.** `1` allows links that point outside the project. |
+| `LIMIT_HANDOFF_FOLLOW_LINKS` | `0` | **User only.** `1` allows links that point outside the project (never into `.git` or `.claude`). |
 | `LIMIT_HANDOFF_STATE_DIR` | see above | **User only.** Log and marker folder. |
 
 File names must stay inside the project and may not point into `.git` or `.claude`. A bad value is logged and the default is used.
@@ -379,6 +379,6 @@ shellcheck --shell=bash --severity=warning --external-sources bin/limit-handoff 
 
 Design notes are in [`docs/DECISIONS.md`](docs/DECISIONS.md) and [`docs/SPEC.md`](docs/SPEC.md). See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) (report problems privately through GitHub) and [CHANGELOG.md](CHANGELOG.md).
 
-Version 1.0.1. MIT licence, see [LICENSE](LICENSE).
+Version 1.0.2. MIT licence, see [LICENSE](LICENSE).
 
 Not affiliated with or endorsed by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic.

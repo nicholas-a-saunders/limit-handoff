@@ -24,6 +24,9 @@ def plain: gsub("[[:cntrl:]\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]";
 #   - the password in a URL (scheme://user:PASSWORD@host);
 #   - the value after a secret-like name (password=, "api_key": "...", TOKEN=, secret: ...);
 #   - the token after "Bearer";
+#   - command-line passwords and keys (--password X, mysql -pX, sshpass -p X), upper-case
+#     variables that end in PASS, SECRET, TOKEN or _KEY (DB_PASS=...), API-key and Authorization
+#     headers, and Twilio (SK...), Mailgun (key-...) and SendGrid (SG.x.y) keys;
 #   - long runs (40 or more) of hex, or of base64 letters that mix letters and digits. A run that
 #     contains "/" (an AWS secret key, a line of a key file) must also mix upper and lower case,
 #     must not start with "/" and must not follow a letter, digit, "+" or "/", so file paths are kept.
@@ -43,6 +46,13 @@ def redact:
   | gsub("(?<k>[A-Za-z][A-Za-z0-9+.-]*://[^/\\s:@]+:)[^@\\s/]+@"; "\(.k)[redacted]@")
   | gsub("(?<k>(?<![A-Za-z])(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)[A-Za-z0-9_]*[\"']?(?:\\s*=\\s*|:\\s*(?=[\"'])|:(?=[^\\s/]))[\"']?)[^\\s\"'&;,]{3,}"; "\(.k)[redacted]"; "i")
   | gsub("(?<k>(?<![A-Za-z])bearer\\s+)[A-Za-z0-9._~+/=-]{16,}"; "\(.k)[redacted]"; "i")
+  | gsub("(?<k>(?<![A-Za-z0-9_-])--(?:password|passwd|pass|token|api-key|apikey|secret|client-secret)(?:=|\\s+))[\"']?[^\\s\"']{3,}[\"']?"; "\(.k)[redacted]"; "i")
+  | gsub("(?<k>\\b(?:mysql|mysqldump|mysqladmin|mariadb)\\b[^\\n|;&]*?\\s-p)[^\\s\"']+"; "\(.k)[redacted]")
+  | gsub("(?<k>\\bsshpass\\s+-p\\s*)[\"']?[^\\s\"']+[\"']?"; "\(.k)[redacted]")
+  | gsub("(?<k>(?<![A-Za-z0-9_])[A-Z0-9_]*(?:PASS|PASSWD|SECRET|TOKEN|APIKEY|API_KEY|_KEY)\\s*=\\s*)[\"']?[^\\s\"'&;,]{3,}"; "\(.k)[redacted]")
+  | gsub("(?<k>(?<![A-Za-z0-9-])(?:x-api-key|api-key|x-auth-token|authorization)\\s*:\\s*(?:basic\\s+|token\\s+)?)[^\\s\"']{8,}"; "\(.k)[redacted]"; "i")
+  | gsub("(?<![A-Za-z0-9])(?:SK[0-9a-fA-F]{32}|key-[0-9a-zA-Z]{32})(?![A-Za-z0-9])"; "[redacted]")
+  | gsub("SG\\.[A-Za-z0-9_-]{16,}\\.[A-Za-z0-9_-]{16,}"; "[redacted]")
   | gsub("[A-Fa-f0-9]{40,}"; "[redacted]")
   | gsub("(?=[A-Za-z0-9+]*[0-9])(?=[A-Za-z0-9+]*[A-Za-z])[A-Za-z0-9+]{40,}"; "[redacted]")
   | gsub("(?<![A-Za-z0-9+/])(?=[A-Za-z0-9+/]*/)(?=[A-Za-z0-9+/]*[0-9])(?=[A-Za-z0-9+/]*[a-z])(?=[A-Za-z0-9+/]*[A-Z])[A-Za-z0-9+][A-Za-z0-9+/]{39,}=*"; "[redacted]");
@@ -50,13 +60,20 @@ def redact:
 
 # Output text: redacted, then cut. Plain text also loses its control characters and backticks.
 # The text is first cut to a little more than $n, so the redact patterns never scan a huge string
-# (a token that crosses the final cut is still seen whole and redacted). A token-like run cut by
-# the precut itself is dropped, so no part of it can show.
+# (a token that crosses the final cut is still seen whole and redacted). Before that cut, every
+# token-like run of 200 or more characters becomes "[redacted]" (no real word is that long), so a
+# long key in the middle of a prompt does not take the rest of the prompt with it. A token-like
+# run cut by the precut itself is dropped, so no part of it can show.
 def precut($n):
   if type == "string" and length > ($n + 200)
-  then .[0:($n + 200)] | sub("[A-Za-z0-9_+/=-]+$"; "")
+  then .[0:($n * 4 + 2000)] | gsub("[A-Za-z0-9_+/=-]{200,}"; "[redacted]")
+       | if length > ($n + 200) then .[0:($n + 200)] | sub("[A-Za-z0-9_+/=-]+$"; "") else . end
   else . end;
 def clean($n): precut($n) | redact | clip($n);
+# raw($n): the text kept while the lines are read, only cut (precut keeps a little more than $n so
+# a token that crosses the cut is still seen whole later). The output runs clean_plain on the few
+# items that are kept, so the slow redact patterns never run on thousands of items.
+def raw($n): precut($n);
 def clean_plain($n): precut($n) | plain | redact | clip($n);
 
 # A user message whose content is a list containing tool results is not a real prompt.
@@ -129,6 +146,7 @@ def user_text:
 def real_prompts:
   if .type == "user"
      and ((.isMeta // false) | not)
+     and ((.isSidechain // false) != true)
      and ((msg.content // null) | is_tool_result_list | not)
   then
     (msg.content | user_text) as $t
@@ -136,9 +154,11 @@ def real_prompts:
   else [] end;
 
 # Text blocks of an assistant line, as a list. A synthetic API error line (isApiErrorMessage)
-# is never a reply, so its text is left out: the real last reply must win.
+# is never a reply, so its text is left out: the real last reply must win. A subagent's line
+# (isSidechain true) is not the main chat's reply either.
 def assistant_texts:
-  if .type == "assistant" and ((.isApiErrorMessage // false) == false) and ((msg.content | type) == "array") then
+  if .type == "assistant" and ((.isApiErrorMessage // false) == false) and ((.isSidechain // false) != true)
+     and ((msg.content | type) == "array") then
     [ msg.content[] | select(type == "object" and .type == "text") | .text
       | select(type == "string" and test("\\S")) ]
   else [] end;
@@ -210,7 +230,7 @@ def advance_list:
 # A full plan list replaces the old one. Entries without "content" are ignored.
 def replace_tasks($items):
   .tasks = [ $items[] | select(type == "object" and has("content"))
-             | {content: (.content | str | clean_plain(600)), status: ((.status // "pending") | str | norm_status)} ]
+             | {content: (.content | str | raw(600)), status: ((.status // "pending") | str | norm_status)} ]
   | .task_ids = {} | .pending_creates = {};
 
 # update_plan with "done" (1-based list) and "start" (1-based number).
@@ -242,12 +262,12 @@ def apply_tool($u):
   | if $n == "TodoWrite" then
       .tasks = [ ($i.todos // []) | if type == "array" then .[] else empty end
                  | select(type == "object")
-                 | {content: ((.content // .activeForm // "") | str | clean_plain(600)), status: ((.status // "pending") | str | norm_status)} ]
+                 | {content: ((.content // .activeForm // "") | str | raw(600)), status: ((.status // "pending") | str | norm_status)} ]
       | .task_ids = {} | .pending_creates = {}
     elif ($n | endswith("update_plan")) then apply_plan($i)
     elif $n == "TaskCreate" then
       (.tasks | length) as $pos
-      | .tasks += [{content: ((($i.subject // $i.description // "") | str | clean_plain(600))), status: "pending"}]
+      | .tasks += [{content: ((($i.subject // $i.description // "") | str | raw(600))), status: "pending"}]
       | if ($u.id | type) == "string" then .pending_creates[$u.id] = $pos else . end
     elif $n == "TaskUpdate" then
       (($i.taskId // "") | str) as $tid
@@ -255,15 +275,15 @@ def apply_tool($u):
       | if $pos == null or ($i.status == null) then .
         else .tasks[$pos].status = (($i.status | str) | norm_status) end
     elif is_file_tool($n) then
-      (($i.file_path // $i.notebook_path // null) | if type == "string" then clean_plain(400) else null end) as $p
+      (($i.file_path // $i.notebook_path // null) | if type == "string" then raw(400) else null end) as $p
       | if ($p | type) == "string" and $p != "" then
           .files = (([$p] + (.files | map(select(. != $p)))) | .[0:20])
         else . end
     elif $n == "Bash" then
       (($i.command // null)) as $c
       | if ($c | type) == "string" and ($c | test("\\S")) then
-          .commands = ((.commands + [{command: ($c | clean_plain(200)),
-                                      description: ((($i.description // "") | str) | clean_plain(200))}]) | .[-5:])
+          .commands = ((.commands + [{command: ($c | raw(200)),
+                                      description: ((($i.description // "") | str) | raw(200))}]) | .[-5:])
         else . end
     else . end;
 
@@ -277,6 +297,16 @@ def note_result($r):
       | if $num != null then .task_ids[$num] = $pos else . end
     else . end;
 
+# One transcript line as JSON. jq refuses a lone UTF-16 surrogate escape (half an emoji, such as
+# \ud83d), which would drop the whole line. Only when the line does not parse, each lone surrogate
+# escape is replaced by \ufffd and the line is read again. Normal lines keep their full speed.
+def parse_line:
+  fromjson? // (if test("\\\\u[dD][89a-fA-F]") then
+                  gsub("\\\\u[dD][89abAB][0-9a-fA-F]{2}(?!\\\\u[dD][c-fC-F][0-9a-fA-F]{2})"; "\\ufffd")
+                  | gsub("(?<!\\\\u[dD][89abAB][0-9a-fA-F]{2})\\\\u[dD][c-fC-F][0-9a-fA-F]{2}"; "\\ufffd")
+                  | fromjson?
+                else empty end);
+
 # One transcript line updates the running state.
 def step($e):
   if $e.type == "user" then
@@ -284,21 +314,25 @@ def step($e):
     | (if ($ps | length) > 0 then add_prompt($ps[0]) else . end)
     # A typed prompt of the main chat means the chat went on, so an old limit no longer counts.
     | (if ($ps | length) > 0 and (($e.isSidechain // false) != true) then .limit = null else . end)
-    | reduce ($e | tool_results | .[]) as $r (.; note_result($r))
+    | (if ($e.isSidechain // false) == true then . else reduce ($e | tool_results | .[]) as $r (.; note_result($r)) end)
   elif $e.type == "assistant" then
     (if ($e | is_limit_line) then .limit = ($e | limit_info)
      elif (($e.isSidechain // false) != true) then .limit = null
      else . end)
     | ($e | assistant_texts) as $ts
     | (if ($ts | length) > 0 then .assistant = $ts[-1] else . end)
-    | reduce ($e | tool_uses | .[]) as $u (.; apply_tool($u))
+    # A subagent's file edits and commands are real work in the project, so they count. Its task
+    # list is its own, so its task tools are skipped.
+    | reduce ($e | tool_uses | .[]) as $u (.;
+        if (($e.isSidechain // false) == true) and ((is_file_tool($u.name // "" | str) or ($u.name == "Bash")) | not)
+        then . else apply_tool($u) end)
   elif $e.type == "last-prompt" and (($e.lastPrompt | type) == "string") then
     .last_prompt = $e.lastPrompt
   else . end;
 
 {prompts: [], assistant: null, tasks: [], pending_creates: {}, task_ids: {}, files: [], commands: [], last_prompt: null, limit: null} as $init
 | [ inputs ] as $raw
-| ([ $raw[] | fromjson? | select(type == "object") ]) as $objs
+| ([ $raw[] | parse_line | select(type == "object") ]) as $objs
 | (reduce $objs[] as $e ($init; step($e))) as $st
 | ($st.prompts) as $prompts
 | (if ($prompts | length) == 0 and ($st.last_prompt != null) then [$st.last_prompt] else $prompts end) as $all
@@ -307,9 +341,9 @@ def step($e):
     last_prompts: (if $np <= 0 then []
                    else ($all | .[([0, (length - $np)] | max):] | map(clean(600))) end),
     last_assistant_text: ($st.assistant | if . == null then null else clean(800) end),
-    tasks: [ $st.tasks[] | select(.status != "deleted") | {content: .content, status: .status} ],
-    files_touched: $st.files,
-    last_commands: $st.commands,
+    tasks: [ $st.tasks[] | select(.status != "deleted") | {content: (.content | clean_plain(600)), status: .status} ],
+    files_touched: ($st.files | map(clean_plain(400)) | reduce .[] as $f ([]; if any(.[]; . == $f) then . else . + [$f] end)),
+    last_commands: [ $st.commands[] | {command: (.command | clean_plain(200)), description: (.description | clean_plain(200))} ],
     limit: $st.limit,
     line_count: ($raw | length)
   }

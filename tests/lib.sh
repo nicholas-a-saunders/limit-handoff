@@ -17,6 +17,22 @@ TL_RUN_TMP="${HK_TEST_RUN_TMP:-$TL_ROOT/tests/.tmp}"
 TL_NOJQ_BIN="${HK_TEST_NOJQ_BIN:-}"
 TL_PATH_FULL="$TL_SHIMS:${PATH}"
 
+# tl_shq text: text quoted for a shell, in single quotes ('\'' for each quote inside). Git runs
+# programs from its config (filters, fsmonitor, diff tools) through a shell, so a path with a
+# space ("Application Support") must be quoted there.
+tl_shq() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+# tl_hint_path path: the command path as hk_cli_hint shows it: quoted (tl_shq) when it has a
+# space or a quote, plain otherwise. The tests then pass in a folder whose name has a space.
+tl_hint_path() {
+  case "$1" in
+    *" "*|*"'"*) tl_shq "$1" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 # ---------------------------------------------------------------------------
 # Assertions. Each one exits the current test with status 1 on failure.
 # ---------------------------------------------------------------------------
